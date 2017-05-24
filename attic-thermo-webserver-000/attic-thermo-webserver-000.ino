@@ -79,10 +79,11 @@ struct temphum_data {
 #define FAN_THRESH 1    // turn off after fanTemp-this_value
 
 #define DAY_FREQS 3  // seconds
-#define DAY_FREQS 60  // seconds
+#define DAY_FREQS (60*2)  // seconds
 #define MON_DATAPOINTS (24*30)              // One per hour
 #define DAY_DATAPOINTS (24*60*60/DAY_FREQS) // Every minute
 #define DAY_DATAPOINTS (24*15)  // Every 2 min all day
+#define WEB_REFRESH_SECS "30"   // Seconds for webpage refresh, as a string
 int lastFanChange = 0;
 int relaystate=LOW;
 int fanOnTemp=DEF_FAN_TEMP;
@@ -330,11 +331,11 @@ void handleRoot() {
 	snprintf(temp, ROOT_MAX_HTML,
 		"<html>"
 		"<head>"
-		"<meta http-equiv=refresh content=10 />"
+		"<meta http-equiv=refresh content=" WEB_REFRESH_SECS " />"
 		"<title>ESP8266</title>"
 		"<style>"
 		"body{background:#eee;font-family:Sans-Serif;color:#008;font-size:150%%;}"
-		"img{background:MidnightBlue}"
+		"img{background:MidnightBlue;margin:0 auto;}"
 		"</style>"
 		"</head>"
 		"<body>"
@@ -363,7 +364,7 @@ void handleRoot() {
 #endif
 	snprintf(temp, ROOT_MAX_HTML,
 		"XRange %dh%dm%ds. %d total samples, every %ds</p>"
-		"<div><img src=/f.svg />"
+		"<img src=/f.svg />"
 		"",
 		int(DAY_DATAPOINTS * DAY_FREQS / 60 / 60),   // all ints anyway
 		int((DAY_DATAPOINTS * DAY_FREQS / 60)) % 60, // have to be sure with %
@@ -375,7 +376,6 @@ void handleRoot() {
 	out += F("<img src=/h.svg />");
 #endif
 	snprintf(temp, ROOT_MAX_HTML,
-		"</div>"
 		"<form action=sett><input type=number name=n value=%d><input type=submit value=Set></form>"
 		"</body></html>"
 		"",
@@ -632,9 +632,9 @@ void drawGraph(int type) {
 	server.sendContent(
 		F("<defs>"
 		"<style type='text/css'><![CDATA["
-		"line {"
-		"stroke-width: 2;"
-		"}"
+		"line{stroke-width:2;}"
+		".hg{stroke-width:1;stroke:gray;}"
+		".vg{stroke-width:1;stroke:#315A5C;}"
 		"]]></style>"
 		"</defs>"));
  	//out += temp;
@@ -648,8 +648,8 @@ void drawGraph(int type) {
 #define RANGECONV(i, smin, smax, dmin, dmax) \
 		(((dmax)-(dmin)) * ((i)-(smin)) / ((smax)-(smin)) + (dmin))
 
-	// GRAPH LINES
-	out = F("<g stroke='gray'>\n");
+	// HORIZONTAL (degrees) GRAPH LINES
+	out = F("<g class='hg'>\n");
 	for (i=minv; i<=maxv; i++) {
 		int y;
 		y = RANGECONV(i, (int)minv, (int)maxv, 0, HEIGHT-1);
@@ -661,17 +661,33 @@ void drawGraph(int type) {
 			0, HEIGHT+PAD2-y,   WIDTH+PAD2-1, HEIGHT+PAD2-y);
 		sl(temp);
 #endif
- 		sprintf(temp, "<line x1='%d' y1='%d' x2='%d' y2='%d' stroke-width='1' />\n",
-			0, HEIGHT+PAD2-y,   WIDTH+PAD2-1, HEIGHT+PAD2-y);
+ 		sprintf(temp, "<line x1='%d' y1='%d' x2='%d' y2='%d' />\n",
+			0, HEIGHT+PAD2-y, WIDTH+PAD2-1, HEIGHT+PAD2-y);
 		out += temp;
 	}
 	out += "</g>\n";
 	server.sendContent(out);
+	out = "";
 
+	//
+	// VERTICAL GRID LINES (EVERY HOUR)
+	//
 	struct temphum_data_store *td1, *td2;
 	// go from: dayNext -> DAY_DATAPOINTS-1
 	//    then: 0 to dayNext-1
 	//if (i<0) i=DAY_DATAPOINTS-1;
+	// ((360 * 120 = total secs) / 60 / 60 = total hours) = 12
+	int xlines = (DAY_DATAPOINTS * DAY_FREQS)/60/60;
+	out += "<g class='vg'>";
+	for (i=0; i<=xlines; i++) {
+		int xloc = WIDTH * i / xlines;
+	 	sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
+			xloc+PAD, 0, xloc+PAD, HEIGHT+PAD2);
+		out += temp;
+	}
+	out += "</g>";
+	server.sendContent(out);
+	out = "";
 
 #ifdef USE_DALLAS
 	i=dayNext;
