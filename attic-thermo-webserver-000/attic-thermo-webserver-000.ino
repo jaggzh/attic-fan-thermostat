@@ -34,6 +34,8 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 
 #define VERBOSE 2
 
+#define MAX_STR_SEND_LEN 2000
+
 //#include "time.c" // including a .c, yay!  ssid, password.  ip, gw, nm
 
 #define sp(a) Serial.print(a)
@@ -78,11 +80,10 @@ struct temphum_data {
 #define FAN_MIN_SECS 60
 #define FAN_THRESH 1    // turn off after fanTemp-this_value
 
-#define DAY_FREQS 3  // seconds
-#define DAY_FREQS (60*2)  // seconds
+#define DAY_FREQS 60  // seconds
 #define MON_DATAPOINTS (24*30)              // One per hour
 #define DAY_DATAPOINTS (24*60*60/DAY_FREQS) // Every minute
-#define DAY_DATAPOINTS (24*15)  // Every 2 min all day
+//#define DAY_DATAPOINTS (24*15)
 #define WEB_REFRESH_SECS "30"   // Seconds for webpage refresh, as a string
 int lastFanChange = 0;
 int relaystate=LOW;
@@ -714,6 +715,12 @@ void drawGraph(int type) {
 			y2 = ((val2 - minv) / (maxv-minv)) * HEIGHT;
 	
 	 		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n", x+10, 10 + (HEIGHT-y), x2+10, 10 + (HEIGHT-y2));
+
+			// Send out data since it can get too big
+			if (out.length()+strlen(temp) >= MAX_STR_SEND_LEN) {
+				server.sendContent(out);
+				out = "";
+			}
 	 		out += temp;
 		}
 		//refresh_send(5, "/", "refresh"); return;
