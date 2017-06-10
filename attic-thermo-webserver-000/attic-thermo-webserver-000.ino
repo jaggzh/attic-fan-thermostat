@@ -34,8 +34,6 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 
 #define VERBOSE 2
 
-#define MAX_STR_SEND_LEN 2000
-
 //#include "time.c" // including a .c, yay!  ssid, password.  ip, gw, nm
 
 #define sp(a) Serial.print(a)
@@ -50,6 +48,8 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 // Example: tdp = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, 0);
 //          reads last entry.  n=1 would read the one before that
 #define CB_PRIOR_N(dat, nxtv, tot, n) (dat[nxtv-n>0 ? nxtv-n-1 : tot-n-1])
+#define DELAY_ERROR 500
+#define DELAY_NORMAL 500
 
 unsigned long time_last = 0;
 ESP8266WebServer server(80); //main web server
@@ -80,11 +80,11 @@ struct temphum_data {
 #define FAN_MIN_SECS 60
 #define FAN_THRESH 1    // turn off after fanTemp-this_value
 
-#define DAY_FREQS 60  // seconds
-#define MON_DATAPOINTS (24*30)              // One per hour
-#define DAY_DATAPOINTS (24*60*60/DAY_FREQS) // Every minute
+#define DAY_FREQS 120  // seconds
+#define DAY_DATAPOINTS (48*60*60/DAY_FREQS) // Every minute
 //#define DAY_DATAPOINTS (24*15)
-#define WEB_REFRESH_SECS "30"   // Seconds for webpage refresh, as a string
+#define WEB_REFRESH_SECS "120"
+
 int lastFanChange = 0;
 int relaystate=LOW;
 int fanOnTemp=DEF_FAN_TEMP;
@@ -329,25 +329,35 @@ void handleRoot() {
 	sp("\n");
 #endif
 	td = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, 0);
+	server.sendContent("HTTP/1.0 200 OK\r\n");
+	server.sendContent("Content-Type: text/html\r\n\r\n");
 	snprintf(temp, ROOT_MAX_HTML,
 		"<html>"
 		"<head>"
 		"<meta http-equiv=refresh content=" WEB_REFRESH_SECS " />"
 		"<title>ESP8266</title>"
 		"<style>"
-		"body{background:#eee;font-family:Sans-Serif;color:#008;font-size:150%%;}"
-		"img{background:MidnightBlue;margin:0 auto;}"
+		"body{background:#eee;font-family:Sans-Serif;color:#008;font-size:170%%;}"
+		"input{font-size:170%%;}"
+		"img{background:MidnightBlue}"
+		".f{padding:0em 1em 0em 1em}" // padded data field
+		".fs{color:white;font-weight:bold}" // fan state
+		".on{background:green}"
+		".off{background:red}"
+		".t{background:yellow}"          // temp
 		"</style>"
 		"</head>"
-		"<body>"
+		"<body>\n"
 		"<p>Uptime: %02d:%02d:%02d [<a href=/update>Update</a>]<br/>"
 		"Fan on @ %d degF<br/>"
 		"Fan state: %s [<a href=fon>On</a>] [<a href=foff>Off</a>]<br/>"
 		"",
 		hr, min % 60, sec % 60,
 		fanOnTemp,
-		relaystate == LOW ? "OFF" : "ON");
-	out += temp;
+		relaystate == LOW
+			? "<span class='f on'>OFF</span>"
+			: "<span class='f off'>ON</span>");
+	server.sendContent(temp);
 #ifdef USE_DHT11
 	snprintf(temp, ROOT_MAX_HTML,
 		"DHT DegF: %.2f (min: %.2f, max: %.2f)<br />"
@@ -358,32 +368,36 @@ void handleRoot() {
 #endif
 #ifdef USE_DALLAS
 	snprintf(temp, ROOT_MAX_HTML,
-		"DS18 DegF: %.2f (min: %.2f, max: %.2f)<br />"
+		"Current temperature: <span class='f t'>%.2f</span> (min: %.2f, max: %.2f)<br />"
 		"",
 		td->df, minf, maxf);
 	out += temp;
 #endif
 	snprintf(temp, ROOT_MAX_HTML,
-		"XRange %dh%dm%ds. %d total samples, every %ds</p>"
+		"XRange %dh%dm%ds. %d total samples, every %ds<br />"
+		"Data storage size: %d<br />"
+		"</p>"
 		"<img src=/f.svg />"
 		"",
 		int(DAY_DATAPOINTS * DAY_FREQS / 60 / 60),   // all ints anyway
 		int((DAY_DATAPOINTS * DAY_FREQS / 60)) % 60, // have to be sure with %
 		int(DAY_DATAPOINTS * DAY_FREQS) % 60,
 		DAY_DATAPOINTS,
-		DAY_FREQS);
+		DAY_FREQS,
+		sizeof(dayData)
+		);
 	out += temp;
 #ifdef USE_DHT11
 	out += F("<img src=/h.svg />");
 #endif
 	snprintf(temp, ROOT_MAX_HTML,
-		"<form action=sett><input type=number name=n value=%d><input type=submit value=Set></form>"
+		"<form action=sett><input type=number name=n value=%d size=4><input type=submit value=Set></form>"
 		"</body></html>"
 		"",
 		fanOnTemp);
 	out += temp;
-	server.send ( 200, "text/html", out );
-	digitalWrite ( led, 0 );
+	server.sendContent(out);
+	digitalWrite(led, 0);
 }
 
 void handleNotFound() {
@@ -617,8 +631,8 @@ void drawGraph(int type) {
 	}
 	sl("");
 #endif
-#define WIDTH  380
-#define HEIGHT 130
+#define WIDTH  640
+#define HEIGHT 280
 #define PAD    10
 #define PAD2   (PAD*2)
 	//void ESP8266WebServer::_prepareHeader(String& response, int code, const char* content_type, size_t contentLength) {
@@ -717,7 +731,8 @@ void drawGraph(int type) {
 	 		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n", x+10, 10 + (HEIGHT-y), x2+10, 10 + (HEIGHT-y2));
 
 			// Send out data since it can get too big
-			if (out.length()+strlen(temp) >= MAX_STR_SEND_LEN) {
+			// HTTP_UPLOAD_BUFLEN comes from ESP8266WebServer.h
+			if (out.length()+strlen(temp) >= HTTP_UPLOAD_BUFLEN-1) {
 				server.sendContent(out);
 				out = "";
 			}
@@ -774,3 +789,78 @@ void drawGraph(int type) {
 	out = "</svg>\n";
 	server.sendContent(out);
 }
+
+#if 0
+const char WUNDERGROUND_REQ[] PROGMEM =
+    "GET /api/" WU_KEY "/conditions/q/" WU_LOC ".json HTTP/1.1\r\n"
+    "User-Agent: ESP8266\r\n"
+    "Accept: */*\r\n"
+    "Host: " WU_HOST "\r\n"
+    "Connection: close\r\n"
+    "\r\n";
+
+void get_wu_data() {
+	//Serial.print(F("Connecting to "));
+	//Serial.println(WUNDERGROUND);
+
+	WiFiClient client;
+	if (!client.connect(WU_HOST, 80)) {
+		//Serial.println(F("connection failed"));
+		delay(DELAY_ERROR);
+		return;
+	}
+	// Send request
+	//Serial.print(WUNDERGROUND_REQ);
+	client.print(WUNDERGROUND_REQ);
+	client.flush();
+
+	// Collect http response headers and content from Weather Underground
+	// HTTP headers are discarded.
+	// The content is formatted in JSON and is left in respBuf.
+	int respLen = 0;
+	bool skip_headers = true;
+	//     "temp_f": 66.3,
+	//     "relative_humidity": "65%"
+	while (httpclient.connected() || httpclient.available()) {
+		if (skip_headers) {
+			String aLine = httpclient.readStringUntil('\n');
+			//Serial.println(aLine);
+			// Blank line denotes end of headers
+			if (aLine.length() <= 1) skip_headers = false;
+		} else {
+			int bytesIn;
+			bytesIn = httpclient.read((uint8_t *) & respBuf[respLen],
+				sizeof(respBuf) - respLen);
+			Serial.print(F("bytesIn "));
+			Serial.println(bytesIn);
+			if (bytesIn > 0) {
+				respLen += bytesIn;
+				if (respLen > sizeof(respBuf)) respLen = sizeof(respBuf);
+			} else if (bytesIn < 0) {
+				Serial.print(F("read error "));
+				Serial.println(bytesIn);
+			}
+		}
+		delay(1); // yield to esp
+	}
+	httpclient.stop();
+
+	if (respLen >= sizeof(respBuf)) {
+		//Serial.print(F("respBuf overflow "));
+		//Serial.println(respLen);
+		//delay(DELAY_ERROR);
+		return;
+	}
+	// Terminate the C string
+	respBuf[respLen++] = '\0';
+	Serial.print(F("respLen "));
+	Serial.println(respLen);
+	//Serial.println(respBuf);
+
+	if (showWeather(respBuf)) {
+		delay(DELAY_NORMAL);
+	} else {
+		delay(DELAY_ERROR);
+	}
+}
+#endif
