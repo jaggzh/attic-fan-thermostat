@@ -4,6 +4,7 @@ by jaggz.h who is still using gmail.com
 2017-05-22
 
 ![WiFi Thermostat Relay Controller](snapshots/webinterface.png "Web Interface (as of 2017-05-22")
+![WiFi Thermostat Relay Controller](snapshots/webinterface2.png "Web Interface (as of 2017-05-22")
 
 
 ## Features:

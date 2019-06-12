@@ -1,6 +1,8 @@
 #define USE_DALLAS      // Using DS18B20?
 //#define USE_DHT11       // Using DHT11 (d1 mini shield in my case)
 #define SAVE_SPIFFS     // save temperature setting to spiffs
+#define WAITSECS_TOGGLE 10  // How long to wait when On/Off manually chosen
+#define MANUAL_ONOFF_MINS 10 // How many minutes a manual setting is active
 
 #ifdef SAVE_SPIFFS
 //#define INIT_SPIFFS   // define if you want to format fs
@@ -27,10 +29,12 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 #include "wifi_config.h" // This sets actual values (gross): ssid, password. ip, gw, nm
 
 
+#ifdef USE_DHT11
 #include "DHT.h"
 #define RELAYPIN  D1  // D1 = ? maybe find out.. or maybe who cares
 #define DHTPIN  2     // D4 = 2 (D4, 2, is shield's pin)
 #define DHTTYPE DHT11 // DHT11
+#endif
 
 #define VERBOSE 2
 
@@ -51,11 +55,23 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 #define DELAY_ERROR 500
 #define DELAY_NORMAL 500
 
-unsigned long time_last = 0;
+unsigned long time_last_read = 0;
 ESP8266WebServer server(80); //main web server
 ESP8266HTTPUpdateServer httpUpdater;
 const int led = 13;
+#ifdef USE_DHT11
 DHT dht(DHTPIN, DHTTYPE);
+#endif
+
+enum enum_state {
+	ST_NORMAL,
+	ST_MANUAL_REQUESTED,
+	ST_MANUAL_REQ_PREDELAY,
+	ST_MANUAL_REQ_RUNNING,
+	ST_WEBHIT
+};
+int state; // global state
+char requested_state = 0; // manually-requested state
 
 struct temphum_data_store {
 	#ifdef USE_DHT11
@@ -97,7 +113,7 @@ int dayNext=0;
 #endif
 
 void reset_lasttime(void) {
-	time_last = millis()/1000;
+	time_last_read = millis()/1000;
 }
 
 // Get minimum and maximum temps
@@ -276,12 +292,14 @@ void refresh_send(int secs, char *url, char *htmlopt) {
 }
 
 void fanOnHTTP() {
-	fanOn();
-	refresh_send(2, "/", (char *)F("Turned on"));
+	requested_state = 1;
+	state = ST_MANUAL_REQUESTED;
+	refresh_send(2, "/", (char *)F("Set to turn ON"));
 }
 void fanOffHTTP() {
-	fanOff();
-	refresh_send(2, "/", (char *)F("Turned off"));
+	requested_state = 0;
+	state = ST_MANUAL_REQUESTED;
+	refresh_send(2, "/", (char *)F("Set to turn OFF"));
 }
 void fanOn() {
 	digitalWrite(RELAYPIN, relaystate = HIGH);
@@ -523,7 +541,9 @@ void setup ( void ) {
 // Then stores log values to dayData
 // Increments to next sensor storage location
 // Does NOT increment if read error from sensor(s)
-int get_and_store_temp(struct temphum_data *tdp) {
+#define DO_STORE 1
+#define NO_STORE 2
+int get_and_store_temp(struct temphum_data *tdp, int store) {
 	int rc=1;
 	struct temphum_data_store *storep;
 	for (int i=0; i<GET_TEMP_ATTEMPTS; i++) {
@@ -552,12 +572,27 @@ void temphumLoopHandler(void) {
 	struct temphum_data td;
 
 	timeNow = millis() / 1000;	// the number of milliseconds that have passed since boot
-	seconds = timeNow - time_last;	//the number of seconds that have passed since the last time 60 seconds was reached.
+	seconds = timeNow - time_last_read;	//the number of seconds that have passed since the last time 60 seconds was reached.
 
+	state = ST_NORMAL
+	if (state == ST_MANUAL_REQUESTED) {
+		manual_req_countdown = WAITSECS_TOGGLE;
+		state = ST_MANUAL_REQ_PREDELAY;
+	} else if (state == ST_MANUAL_REQ_PREDELAY) {
+
+
+		if (seconds > WAITSECS_TOGGLE) {
+			if (requested_state == 1) fanOn();
+			else fanOff();
+			change_request = 0;
+		}
+	}
+		
 	if (seconds >= DAY_FREQS) {   // at or past time to get temperature
-		time_last = timeNow;  // Reset timer even if we don't get the data
+		time_last_read = timeNow;  // Reset timer even if we don't get the data
 			// Try twice to get temp data
-		if (!get_and_store_temp(&td) || !get_and_store_temp(&td)) {
+		if (	!get_and_store_temp(&td, DO_STORE) || \
+				!get_and_store_temp(&td, DO_STORE)) {
 			float curf;
 			#ifdef USE_DALLAS // more reliable
 			curf = td.df;
@@ -601,6 +636,23 @@ void drawGraphH() {
 	server.send ( 200, F("image/svg+xml"), "");
 #endif
 }
+
+#if 0 // dunno what I was adding here
+void storeGraph(int type) {
+	for (n=0; n<DAY_DATAPOINTS; n++, i++) {
+		int i2;           // i+1's next datapoint index
+		int y, x; // output svg coords
+		float val1; // humidity or degf (based on type parameter)
+
+		if (i>=DAY_DATAPOINTS) i=0; // Handle circular buffer wrap
+		td1 = &dayData[i];          // Get structs for data points
+		val1 = type == TYPE_DEGF ? td1->df : 0;
+
+		// Scale X to SVG dimensions
+		x = (int)(n * WIDTH * 1.0 / (DAY_DATAPOINTS-1)); // float and back
+	}
+}
+#endif
 
 void drawGraph(int type) {
 	String out = "";
