@@ -103,6 +103,8 @@ int dayNext=0;
 //uint8_t dal_addr=0; // this address method might be faster than byindex
 #endif
 
+FSInfo fs_info;
+
 void reset_lasttime(void) {
 	time_last = millis()/1000;
 }
@@ -342,11 +344,14 @@ void handleRoot() {
 		"<html>"
 		"<head>"
 		"<meta http-equiv=refresh content=" WEB_REFRESH_SECS " />"
-		"<title>ESP8266</title>"
+		"<meta charset='utf-8' />"
+		"<title>Attic</title>"
 		"<style>"
 		"body{background:#eee;font-family:Sans-Serif;color:#008;font-size:170%%;}"
+		"form{padding:.1em .5em .1em .5em}"
 		"input{font-size:170%%;}"
 		"img{background:MidnightBlue}"
+		"p{magin:.5em .2em .5em .2em}"
 		".f{padding:0em 1em 0em 1em}" // padded data field
 		".fs{color:white;font-weight:bold}" // fan state
 		".on{background:green}"
@@ -354,10 +359,12 @@ void handleRoot() {
 		".t{background:yellow}"          // temp
 		"</style>"
 		"</head>"
-		"<body>\n"
+		"<body>\n");
+	server.sendContent(temp);
+	snprintf(temp, ROOT_MAX_HTML,
 		"<p>Uptime: %02d:%02d:%02d [<a href=/update>Update</a>]<br/>"
-		"Fan on @ %d degF<br/>"
-		"Fan state: %s [<a href=fon>On</a>] [<a href=foff>Off</a>]<br/>"
+		"<i>Fan on @</i> %d°<br/>"
+		"Fan state: %s<br/>" /* [<a href=fon>On</a>] [<a href=foff>Off</a>]<br/>" */
 		"",
 		hr, min % 60, sec % 60,
 		fanOnTemp,
@@ -367,31 +374,37 @@ void handleRoot() {
 	server.sendContent(temp);
 #ifdef USE_DHT11
 	snprintf(temp, ROOT_MAX_HTML,
-		"DHT DegF: %.2f (min: %.2f, max: %.2f)<br />"
-		"DHT Hum: %.2f, Min: %.2f Max: %.2f<br />"
+		"DHT °F: %.2f (min: %.2f, max: %.2f)<br/>"
+		"DHT Hum: %.2f, Min: %.2f Max: %.2f<br/>"
 		"",
 		td->f, minf, maxf, td->h, minh, maxh);
 	out += temp;
 #endif
 #ifdef USE_DALLAS
 	snprintf(temp, ROOT_MAX_HTML,
-		"Current temperature: <span class='f t'>%.2f</span> (min: %.2f, max: %.2f)<br />"
+		"Current temperature: <span class='f t'>%.2f°</span><br/>"
 		"",
-		td->df, minf, maxf);
+		td->df);
 	out += temp;
 #endif
+	server.sendContent(out);
+	out="";
 	snprintf(temp, ROOT_MAX_HTML,
-		"XRange %dh%dm%ds. %d total samples, every %ds<br />"
-		"Data storage size: %d<br />"
-		"</p>"
-		"<img src=/f.svg />"
+		"XRange %dh%dm%ds. %d total samples, every %ds<br/>"
+		"Data storage size: %d<br/>"
+		"FS used/total: %d/%d bytes<br/>"
+		"Max: %.2f°<br/>"
+		"<img src=/f.svg /><br/>"
+		"Min: %.2f°<br/>"
 		"",
 		int(DAY_DATAPOINTS * DAY_FREQS / 60 / 60),   // all ints anyway
 		int((DAY_DATAPOINTS * DAY_FREQS / 60)) % 60, // have to be sure with %
 		int(DAY_DATAPOINTS * DAY_FREQS) % 60,
 		DAY_DATAPOINTS,
 		DAY_FREQS,
-		sizeof(dayData)
+		sizeof(dayData),
+		fs_info.usedBytes, fs_info.totalBytes,
+		maxf, minf
 		);
 	out += temp;
 #ifdef USE_DHT11
@@ -399,6 +412,14 @@ void handleRoot() {
 #endif
 	snprintf(temp, ROOT_MAX_HTML,
 		"<form action=sett><input type=number name=n value=%d size=4><input type=submit value=Set></form>"
+		"Choose: ["
+		"<a href='sett?n=70'>70</a>, "
+		"<a href='sett?n=75'>75</a>, "
+		"<a href='sett?n=80'>80</a>, "
+		"<a href='sett?n=115'>115</a>, "
+		"<a href='sett?n=120'>120</a>, "
+		"<a href='sett?n=125'>125</a>"
+		"] °F"
 		"</body></html>"
 		"",
 		fanOnTemp);
@@ -526,6 +547,9 @@ void setup(void) {
 #ifdef SAVE_SPIFFS
 	//SPIFFS.begin();
 #endif
+	SPIFFS.begin();
+	SPIFFS.info(fs_info);
+	SPIFFS.end();
 }
 
 // Gets temperature, puts into struct at tdp.
