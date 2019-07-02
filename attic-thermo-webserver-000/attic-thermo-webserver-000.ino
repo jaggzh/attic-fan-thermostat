@@ -18,7 +18,7 @@
 #ifdef USE_DALLAS
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#define DALPIN D3   // data pin for ds18b20
+#define DALPIN 0   // data pin for ds18b20
 OneWire oneWire(DALPIN); // on our pin (bus), but for any onewire devices
 DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Temperature. 
 #endif
@@ -26,11 +26,13 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 //#include <ArduinoOTA.h>
 #include "wifi_config.h" // This sets actual values (gross): ssid, password. ip, gw, nm
 
+#define RELAYPIN 5  // D1 = 1 for NodeMCU, but we're using Arduino so D1 = 5
 
+#ifdef USE_DHT
 #include "DHT.h"
-#define RELAYPIN  D1  // D1 = ? maybe find out.. or maybe who cares
 #define DHTPIN  2     // D4 = 2 (D4, 2, is shield's pin)
 #define DHTTYPE DHT11 // DHT11
+#endif
 
 #define VERBOSE 2
 
@@ -55,7 +57,9 @@ unsigned long time_last = 0;
 ESP8266WebServer server(80); //main web server
 ESP8266HTTPUpdateServer httpUpdater;
 const int led = 13;
+#ifdef USE_DHT
 DHT dht(DHTPIN, DHTTYPE);
+#endif
 
 struct temphum_data_store {
 	#ifdef USE_DHT11
@@ -80,8 +84,11 @@ struct temphum_data {
 #define FAN_MIN_SECS 60
 #define FAN_THRESH 1    // turn off after fanTemp-this_value
 
+#define MAX_DATAPOINTS 1440
+#define DAY_FREQS 3  // seconds
 #define DAY_FREQS 120  // seconds
 #define DAY_DATAPOINTS (48*60*60/DAY_FREQS) // Every minute
+#define DAY_DATAPOINTS MAX_DATAPOINTS
 //#define DAY_DATAPOINTS (24*15)
 #define WEB_REFRESH_SECS "120"
 
@@ -452,11 +459,14 @@ void setTempTrigger(void) {
 	}
 }
 
-void setup ( void ) {
+void setup(void) {
+	Serial.begin(115200);
 #ifdef INIT_SPIFFS
+	delay(3000);
 	Serial.println(F("Wait 30 secs SPIFFS format"));
-	SPIFFS.format();
-	Serial.println(F("Spiffs formatted"));
+	bool result = SPIFFS.format();
+	Serial.print(F("Spiffs formatted result:"));
+	Serial.println(result);
 #endif
 
 #ifdef USE_DHT11
@@ -472,7 +482,6 @@ void setup ( void ) {
 	pinMode(led, OUTPUT);
 	digitalWrite(led, 0);
 	WiFi.mode(WIFI_STA);
-	Serial.begin(115200);
 	WiFi.config(ip, gw, nm);
 	WiFi.begin(ssid, password);
 	sl("");
@@ -585,7 +594,7 @@ void temphumLoopHandler(void) {
 	}
 }
 
-void loop ( void ) {
+void loop(void) {
 	//ArduinoOTA.handle();
 	//delay(10);
 	temphumLoopHandler();
