@@ -84,6 +84,13 @@ struct temphum_data {
 #define FAN_MIN_SECS 60
 #define FAN_THRESH 1    // turn off after fanTemp-this_value
 
+/* SECS_TEMP_CHECK
+   How frequently to check temperature, just for display.
+   Updates to data handle less frequently.
+   (See DAY_FREQS for the seconds between storage points)
+*/
+#define SECS_TEMP_CHECK 5
+
 #define MAX_DATAPOINTS 1440
 #define DAY_FREQS 3  // seconds
 #define DAY_FREQS 120  // seconds
@@ -230,10 +237,10 @@ void load_firstreading(void) {
 
 	for (int i=0; i<GET_TEMP_ATTEMPTS; i++) {
 		if (!get_temphum_floats(&td)) {
-			succ=1;
-			break; // success
+			succ++;
+		} else {
+			sl("Failed initial read, trying 3 times\n");
 		}
-		sl("Failed initial read, trying 3 times\n");
 		delay(100);
 	}
 	if (!succ) {
@@ -351,7 +358,7 @@ void handleRoot() {
 		"form{padding:.1em .5em .1em .5em}"
 		"input{font-size:170%%;}"
 		"img{background:MidnightBlue}"
-		"p{magin:.5em .2em .5em .2em}"
+		"p{margin:.5em .2em .5em .2em}"
 		".f{padding:0em 1em 0em 1em}" // padded data field
 		".fs{color:white;font-weight:bold}" // fan state
 		".on{background:green}"
@@ -556,6 +563,33 @@ void setup(void) {
 // Then stores log values to dayData
 // Increments to next sensor storage location
 // Does NOT increment if read error from sensor(s)
+int get_temp(struct temphum_data *tdp) {
+	int rc=1;
+	for (int i=0; i<GET_TEMP_ATTEMPTS; i++) {
+		if (!(rc = get_temphum_floats(tdp))) break;
+		delay(100);
+	}
+	if (rc) {
+		sl(F("Sens failure"));
+		return rc;  // failed
+	}
+	return 0;
+}
+
+void store_temp(struct temphum_data *tdp) {
+	struct temphum_data_store *storep;
+	storep = &(dayData[dayNext]);
+	#ifdef USE_DHT11
+		storep->h = tdp->h;
+		storep->f = tdp->f;
+	#endif
+	#ifdef USE_DALLAS
+		storep->df = tdp->df;
+	#endif
+	if (++dayNext >= DAY_DATAPOINTS) dayNext=0;
+	return 0;
+}
+
 int get_and_store_temp(struct temphum_data *tdp) {
 	int rc=1;
 	struct temphum_data_store *storep;
@@ -568,13 +602,13 @@ int get_and_store_temp(struct temphum_data *tdp) {
 		return rc;  // failed
 	}
 	storep = &(dayData[dayNext]);
-#ifdef USE_DHT11
-	storep->h = tdp->h;
-	storep->f = tdp->f;
-#endif
-#ifdef USE_DALLAS
-	storep->df = tdp->df;
-#endif
+	#ifdef USE_DHT11
+		storep->h = tdp->h;
+		storep->f = tdp->f;
+	#endif
+	#ifdef USE_DALLAS
+		storep->df = tdp->df;
+	#endif
 	if (++dayNext >= DAY_DATAPOINTS) dayNext=0;
 	return 0;
 }
@@ -587,15 +621,19 @@ void temphumLoopHandler(void) {
 	timeNow = millis() / 1000;	// the number of milliseconds that have passed since boot
 	seconds = timeNow - time_last;	//the number of seconds that have passed since the last time 60 seconds was reached.
 
+	if (seconds >= SECS_TEMP_CHECK) {
+		if (get_temp(&td)) { // ERRORED
+			delay(100);      // Don't check too often
+		} else {
 	if (seconds >= DAY_FREQS) {   // at or past time to get temperature
 		time_last = timeNow;  // Reset timer even if we don't get the data
 			// Try twice to get temp data
 		if (!get_and_store_temp(&td) || !get_and_store_temp(&td)) {
 			float curf;
 			#ifdef USE_DALLAS // more reliable
-			curf = td.df;
+				curf = td.df;
 			#elif defined(USE_DHT11)
-			curf = td.f;
+				curf = td.f;
 			#else
 				#error "NO THERMOMETER!"
 			#endif
