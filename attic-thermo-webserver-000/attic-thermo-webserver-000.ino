@@ -1,4 +1,6 @@
+#define __MAIN_INO__
 #define USE_DALLAS      // Using DS18B20?
+// #define DUMP_DATA_SERIAL  // dump temp data, on hits, to serial
 //#define USE_DHT11       // Using DHT11 (d1 mini shield in my case)
 #define SAVE_SPIFFS     // save temperature setting to spiffs
 
@@ -14,6 +16,7 @@
 #ifdef SAVE_SPIFFS
 #include "FS.h"
 #endif
+#include "ota.h"
 
 #ifdef USE_DALLAS
 #include <OneWire.h>
@@ -53,7 +56,11 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 #define DELAY_ERROR 500
 #define DELAY_NORMAL 500
 
+unsigned long previous_millis=0;
+unsigned long secs_counter=0;
 unsigned long time_last = 0;
+unsigned char fan_on_manual = 0;
+unsigned long fan_on_limit_secs = 0;
 ESP8266WebServer server(80); //main web server
 ESP8266HTTPUpdateServer httpUpdater;
 const int led = 13;
@@ -87,14 +94,14 @@ struct temphum_data {
 /* SECS_TEMP_CHECK
    How frequently to check temperature, just for display.
    Updates to data handle less frequently.
-   (See DAY_FREQS for the seconds between storage points)
+   (See CHECK_PERIOD for the seconds between storage points)
 */
 #define SECS_TEMP_CHECK 5
 
 #define MAX_DATAPOINTS 1440
-#define DAY_FREQS 3  // seconds
-#define DAY_FREQS 120  // seconds
-#define DAY_DATAPOINTS (48*60*60/DAY_FREQS) // Every minute
+//#define CHECK_PERIOD 3  // seconds
+#define CHECK_PERIOD 120  // seconds
+//#define DAY_DATAPOINTS (48*60*60/CHECK_PERIOD) // Every minute
 #define DAY_DATAPOINTS MAX_DATAPOINTS
 //#define DAY_DATAPOINTS (24*15)
 #define WEB_REFRESH_SECS "120"
@@ -111,6 +118,10 @@ int dayNext=0;
 #endif
 
 FSInfo fs_info;
+
+void drawGraph(int type);
+void drawGraphF(void);
+void drawGraphH(void);
 
 void reset_lasttime(void) {
 	time_last = millis()/1000;
@@ -166,7 +177,7 @@ int get_temphum_floats(struct temphum_data *td) {
 	// Disconnected DS18B20 data line yields DEVICE_DISCONNECTED_F
 	// Disc. power lead yields 185 (also from getTempFbyindex())
 	if ((int)res == -196 || (int)res == 185) {
-		sl("DS18B20[0] disconnected");
+		sl("DS18B20[0] !connected");
 		return 1;
 	}
 	td->df = res;
@@ -273,15 +284,15 @@ void refresh_printf(int secs, char *url, char *htmlopt, ...) {
 		"<html><head><meta http-equiv=refresh content='%d; url=%s' /></head><body>",
 		secs, url);
 	if (len < SMALL_HTML) { // enough room left
-		snprintf(temp+len, htmlopt
-
-	, htmlopt ? htmlopt : ""
-	);
+		snprintf(temp+len, htmlopt 
+			, htmlopt ? htmlopt : ""
+		);
+	}
 	server.send(200, "text/html", temp );
 }
 #endif
 
-void refresh_send(int secs, char *url, char *htmlopt) {
+void refresh_send(int secs, const char *url, const char *htmlopt) {
 	char temp[SMALL_HTML];
 	int len;
 	len = snprintf(temp, SMALL_HTML,
@@ -292,10 +303,30 @@ void refresh_send(int secs, char *url, char *htmlopt) {
 }
 
 void fanOnHTTP() {
+	String minss=server.arg("m"); // minutes (optional) (actually seconds)
+	unsigned int minsi;
+
+	if (!minss.length() || !isdigit(minss[0])) { // Manual setting
+		minsi = 0;
+		Serial.print(F("No m setting passed"));
+	} else {
+		char lastc = minss[minss.length()-1];
+		minsi = minss.toInt();
+		if (lastc == 'm') minsi *= 60;
+		else if (lastc == 'h') minsi *= 60*60;
+		fan_on_manual = 1;
+		fan_on_limit_secs = minsi;
+		Serial.print(F("Setting mins to "));
+		Serial.println(minsi);
+	}
+
 	fanOn();
 	refresh_send(2, "/", (char *)F("Turned on"));
 }
+
 void fanOffHTTP() {
+	fan_on_manual = 1;
+	fan_on_limit_secs = 0;
 	fanOff();
 	refresh_send(2, "/", (char *)F("Turned off"));
 }
@@ -309,9 +340,10 @@ void fanOff() {
 void handleRoot() {
 	digitalWrite ( led, 1 );
 	char temp[ROOT_MAX_HTML+1];
-	int sec = millis() / 1000;
-	int min = sec / 60;
+	int sec = millis() / 1000; // total secs, not mod(60)
+	int min = sec / 60;        // none of these are mod. they're totals.
 	int hr = min / 60;
+	int days = hr / 24;
 	struct temphum_data_store *td;
 	float minf, maxf;
 	float minh, maxh;
@@ -369,15 +401,30 @@ void handleRoot() {
 		"<body>\n");
 	server.sendContent(temp);
 	snprintf(temp, ROOT_MAX_HTML,
-		"<p>Uptime: %02d:%02d:%02d [<a href=/update>Update</a>]<br/>"
+		"<p>Uptime: %d days, %02dh %02dm %02ds [<a href=/update>Update</a>]<br/>"
 		"<i>Fan on @</i> %d°<br/>"
-		"Fan state: %s<br/>" /* [<a href=fon>On</a>] [<a href=foff>Off</a>]<br/>" */
+		"Fan state: %s<br/>"
+		"Fan manually set: %s (Time left: %uh%um%us)<br/>"
+		"[<a href=foff>Off</a>]"
+		" [<a href=fon>On</a>: "
+		"{<a href=fon?m=30>30</a>,<a href=fon?m=60>60</a>}s "
+		"{<a href=fon?m=5m>5</a>,<a href=fon?m=20m>20</a>,"
+		 "<a href=fon?m=30m>30</a>,<a href=fon?m=45m>45</a>}m "
+		"{<a href=fon?m=1h>1</a>,<a href=fon?m=2h>2</a>,"
+		 "<a href=fon?m=3h>3</a>,<a href=fon?m=4h>4</a>,"
+		 "<a href=fon?m=5h>5</a>}h]<br/>"
 		"",
-		hr, min % 60, sec % 60,
+		days, hr%24, min%60, sec%60,
 		fanOnTemp,
 		relaystate == LOW
 			? "<span class='f on'>OFF</span>"
-			: "<span class='f off'>ON</span>");
+			: "<span class='f off'>ON</span>",
+		fan_on_manual ? "On" : "Off",
+		fan_on_limit_secs/(60*60),
+		(fan_on_limit_secs/60)%60,
+		fan_on_limit_secs%60
+		);
+	Serial.println(fan_on_limit_secs);
 	server.sendContent(temp);
 #ifdef USE_DHT11
 	snprintf(temp, ROOT_MAX_HTML,
@@ -404,11 +451,11 @@ void handleRoot() {
 		"<img src=/f.svg /><br/>"
 		"Min: %.2f°<br/>"
 		"",
-		int(DAY_DATAPOINTS * DAY_FREQS / 60 / 60),   // all ints anyway
-		int((DAY_DATAPOINTS * DAY_FREQS / 60)) % 60, // have to be sure with %
-		int(DAY_DATAPOINTS * DAY_FREQS) % 60,
+		int(DAY_DATAPOINTS * CHECK_PERIOD / 60 / 60),   // all ints anyway
+		int((DAY_DATAPOINTS * CHECK_PERIOD / 60)) % 60, // have to be sure with %
+		int(DAY_DATAPOINTS * CHECK_PERIOD) % 60,
 		DAY_DATAPOINTS,
-		DAY_FREQS,
+		CHECK_PERIOD,
 		sizeof(dayData),
 		fs_info.usedBytes, fs_info.totalBytes,
 		maxf, minf
@@ -469,7 +516,7 @@ void loadTempTrigger(void) {
 
 void setTempTrigger(void) {
 	String ns=server.arg("n");
-	char temp[110];
+	//char temp[110];
 	if (!isdigit(ns[0])) refresh_send(5, "/", "BAD NUMBER!");
 	else {
 		SPIFFS.begin();
@@ -488,6 +535,8 @@ void setTempTrigger(void) {
 }
 
 void setup(void) {
+	// We set the initial millis() at the end of setup()
+	// >> previous_millis = millis();
 	Serial.begin(115200);
 #ifdef INIT_SPIFFS
 	delay(3000);
@@ -495,6 +544,8 @@ void setup(void) {
 	bool result = SPIFFS.format();
 	Serial.print(F("Spiffs formatted result:"));
 	Serial.println(result);
+#else
+  Serial.print(F("Skipping Spiff format")); 
 #endif
 
 #ifdef USE_DHT11
@@ -509,6 +560,7 @@ void setup(void) {
 	pinMode(RELAYPIN, OUTPUT);
 	pinMode(led, OUTPUT);
 	digitalWrite(led, 0);
+	fanOff();
 	WiFi.mode(WIFI_STA);
 	WiFi.config(ip, gw, nm);
 	WiFi.begin(ssid, password);
@@ -544,6 +596,7 @@ void setup(void) {
 	server.on(F("/foff"), fanOffHTTP );
 	server.on(F("/f.svg"), drawGraphF );
 	server.on(F("/h.svg"), drawGraphH );
+	server.on(F("/f.txt"), dumpDataF );
 	server.on(F("/sett"), setTempTrigger );
 	//server.on("/inline", []() {server.send(200,"text/plain","this works as well"); });
 	httpUpdater.setup(&server, update_user, update_pw); // adds /update path for OTA
@@ -556,7 +609,11 @@ void setup(void) {
 #endif
 	SPIFFS.begin();
 	SPIFFS.info(fs_info);
+	Serial.print(F("Spiffs total bytes: "));
+	Serial.println(fs_info.totalBytes);
 	SPIFFS.end();
+	setup_ota();
+	previous_millis = millis();
 }
 
 // Gets temperature, puts into struct at tdp.
@@ -587,7 +644,7 @@ void store_temp(struct temphum_data *tdp) {
 		storep->df = tdp->df;
 	#endif
 	if (++dayNext >= DAY_DATAPOINTS) dayNext=0;
-	return 0;
+	//return 0;
 }
 
 int get_and_store_temp(struct temphum_data *tdp) {
@@ -613,19 +670,47 @@ int get_and_store_temp(struct temphum_data *tdp) {
 	return 0;
 }
 
+void manual_fan_update(unsigned long diff_secs) {
+	unsigned int diff_mins = diff_secs/60;
+	if (fan_on_manual && relaystate == HIGH) {
+		if (fan_on_limit_secs < diff_secs) {
+			fan_on_limit_secs = 0;
+			fan_on_manual = 0;
+			fanOff();
+		} else {
+			fan_on_limit_secs -= diff_secs;
+		}
+	}
+}
+
 void temphumLoopHandler(void) {
 	unsigned long timeNow;
 	int seconds;
 	struct temphum_data td;
 
-	timeNow = millis() / 1000;	// the number of milliseconds that have passed since boot
-	seconds = timeNow - time_last;	//the number of seconds that have passed since the last time 60 seconds was reached.
+	unsigned long diff_millis = millis() - previous_millis;
+	unsigned long diff_secs;
+	if (diff_millis >= 1000) { // at least a second has passed.
+		diff_secs = diff_millis / 1000;
+		secs_counter += diff_secs;
+		previous_millis += (diff_secs * 1000);
+		Serial.print(F("Diff millis: ")); Serial.println(diff_millis);
+		Serial.print(F("Diff secs: ")); Serial.println(diff_secs);
+		Serial.print(F(" Millis: ")); Serial.println(millis());
+		Serial.print(F("PMillis: ")); Serial.println(previous_millis);
+		manual_fan_update(diff_secs);
+	}
 
-	if (seconds >= SECS_TEMP_CHECK) {
+	timeNow = millis() / 1000;	// the number of milliseconds that have passed since boot
+	seconds = timeNow - time_last;	//the number of seconds that have passed since the last time CHECK_PERIOD seconds was reached.
+
+	#warning This is where we are evaluating the temp more frequently
+	/* if (seconds >= SECS_TEMP_CHECK) {
 		if (get_temp(&td)) { // ERRORED
 			delay(100);      // Don't check too often
 		} else {
-	if (seconds >= DAY_FREQS) {   // at or past time to get temperature
+	*/
+	if (seconds >= CHECK_PERIOD) {   // at or past time to get temperature
 		time_last = timeNow;  // Reset timer even if we don't get the data
 			// Try twice to get temp data
 		if (!get_and_store_temp(&td) || !get_and_store_temp(&td)) {
@@ -641,26 +726,54 @@ void temphumLoopHandler(void) {
 			// Test if fan needs to be turned on or off
 			// Don't do it unless FAN_MIN_SECS time has passed, to avoid
 			// it turning on/off too quickly.
-			if (timeNow - lastFanChange > FAN_MIN_SECS) {
-				if (curf >= fanOnTemp && relaystate == LOW) {
-					sl(F("Fan turned ON"));
-					lastFanChange = timeNow;
-					fanOn();
-				} else if (curf < fanOnTemp-FAN_THRESH && relaystate == HIGH) {
-					sl(F("Fan turned OFF"));
-					lastFanChange = timeNow;
-					fanOff();
+			if (!fan_on_manual) {
+				if (timeNow - lastFanChange > FAN_MIN_SECS) {
+					if (curf >= fanOnTemp && relaystate == LOW) {
+						sl(F("Fan turned ON"));
+						lastFanChange = timeNow;
+						fanOn();
+					} else if (curf < fanOnTemp-FAN_THRESH && relaystate == HIGH) {
+						sl(F("Fan turned OFF"));
+						lastFanChange = timeNow;
+						fanOff();
+					}
 				}
 			}
 		}
 	}
 }
 
-void loop(void) {
-	//ArduinoOTA.handle();
-	//delay(10);
-	temphumLoopHandler();
-	server.handleClient();
+#define XSTR(s) STR(s)
+#define STR(s) #s
+
+void dumpDataF() {
+	String times=server.arg("t");
+	uint32_t timei;
+	int i, n;
+	uint32_t offt=-((DAY_DATAPOINTS-1)*CHECK_PERIOD);
+	if (!times.length() || !isdigit(times[0])) {
+		timei=0;
+	} else {
+		timei = times.toInt();
+	}
+	server.sendContent("HTTP/1.0 200 OK\r\n");
+	server.sendContent("Content-Type: text/plain\r\n\r\n");
+	n=0, i=dayNext+1;
+	server.sendContent("# Datapoints: " XSTR(DAY_DATAPOINTS) ", Sample secs: " XSTR(CHECK_PERIOD) "\n");
+	if (timei != 0) {
+		server.sendContent("#Time(s)\tTempF\n");
+	} else {
+		server.sendContent("#Seconds\tTempF\n");
+	}
+
+	for (;  n<DAY_DATAPOINTS, offt += CHECK_PERIOD;  n++, i++) {
+		struct temphum_data_store *ts;
+		char temp[24];
+		if (i>DAY_DATAPOINTS) i=0;
+		ts = &dayData[i];
+		sprintf(temp, "%ld\t%3.3f\n", timei+offt, ts->df);
+		server.sendContent(temp);
+	}
 }
 
 void drawGraphF() { drawGraph(TYPE_DEGF); }
@@ -678,7 +791,7 @@ void drawGraph(int type) {
 	char temp[SMALL_HTML+1];
 	int i, n;
 	// Display about 16 datapoints starting at 0 in time (in the circle buffer)
-#ifdef USE_DHT11
+#if defined(USE_DHT11) && defined(DUMP_DATA_SERIAL)
 	sp("GRAPH DHT: ");
 	n=0, i=dayNext+1;
 	for (; n<DAY_DATAPOINTS; n+=(DAY_DATAPOINTS/16), i+=(DAY_DATAPOINTS/16)) {
@@ -690,7 +803,7 @@ void drawGraph(int type) {
 	}
 	sl("");
 #endif
-#ifdef USE_DALLAS
+#if defined(USE_DALLAS) && defined(DUMP_DATA_SERIAL)
 	sp("GRAPH DS18: ");
 	n=0, i=dayNext+1;
 	for (; n<DAY_DATAPOINTS; n+=(DAY_DATAPOINTS/16), i+=(DAY_DATAPOINTS/16)) {
@@ -706,24 +819,7 @@ void drawGraph(int type) {
 #define HEIGHT 280
 #define PAD    10
 #define PAD2   (PAD*2)
-	//void ESP8266WebServer::_prepareHeader(String& response, int code, const char* content_type, size_t contentLength) {
-	String response = "";
-	//server._prepareHeader(response, 200, "image/svg+xml", CONTENT_LENGTH_UNKNOWN);
-	server.sendContent("HTTP/1.0 200 OK\r\n");
-	server.sendContent("Content-Type: image/svg+xml\r\n\r\n");
-	//server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-	//server.send ( 200, "image/svg+xml", "");
-	sprintf(temp, "<svg xmlns='http://www.w3.org/2000/svg' version='1.1' width='%d' height='%d'>\n", WIDTH+PAD2, HEIGHT+PAD2);
-	server.sendContent(temp);
-	server.sendContent(
-		F("<defs>"
-		"<style type='text/css'><![CDATA["
-		"line{stroke-width:2;}"
-		".hg{stroke-width:1;stroke:gray;}"
-		".vg{stroke-width:1;stroke:#315A5C;}"
-		"]]></style>"
-		"</defs>"));
- 	//out += temp;
+	//void ESP8266WebServer::_prepareHeader(String& response, int code, const char* content_type, size_t contentLength) 
 
 	// Get minimum and maximum temps
 	float minv, maxv;
@@ -731,6 +827,29 @@ void drawGraph(int type) {
 	//sp("Min max: "); sp(minv); sp(" -> "); sl(maxv);
 	minv=floor(minv);
 	maxv=ceil(maxv);
+
+	String response = "";
+	//server._prepareHeader(response, 200, "image/svg+xml", CONTENT_LENGTH_UNKNOWN);
+	server.sendContent("HTTP/1.0 200 OK\r\n");
+	server.sendContent("Content-Type: image/svg+xml\r\n\r\n");
+	//server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+	//server.send ( 200, "image/svg+xml", "");
+	sprintf(temp,
+		"<svg xmlns='http://www.w3.org/2000/svg' version='1.1' width='%d' height='%d'>"
+		"",
+			WIDTH+PAD2, HEIGHT+PAD2);
+	server.sendContent(temp);
+	server.sendContent(
+		F("<defs>"
+		"<style type='text/css'><![CDATA["
+		"line{stroke-width:2;}"
+		".hg{stroke-width:1;stroke:gray;}"
+		".vg{stroke-width:1;stroke:#315A5C;}"
+    ".tx{fill:red;font-size:200%;}"
+		"]]></style>"
+		"</defs>"));
+ 	//out += temp;
+
 #define RANGECONV(i, smin, smax, dmin, dmax) \
 		(((dmax)-(dmin)) * ((i)-(smin)) / ((smax)-(smin)) + (dmin))
 
@@ -763,7 +882,7 @@ void drawGraph(int type) {
 	//    then: 0 to dayNext-1
 	//if (i<0) i=DAY_DATAPOINTS-1;
 	// ((360 * 120 = total secs) / 60 / 60 = total hours) = 12
-	int xlines = (DAY_DATAPOINTS * DAY_FREQS)/60/60;
+	int xlines = (DAY_DATAPOINTS * CHECK_PERIOD)/60/60;
 	out += "<g class='vg'>";
 	for (i=0; i<=xlines; i++) {
 		int xloc = WIDTH * i / xlines;
@@ -857,81 +976,21 @@ void drawGraph(int type) {
  	}
  	out += "</g>";
 	*/
-	out = "</svg>\n";
-	server.sendContent(out);
+	sprintf(temp,
+		"<text x=\"10\" y=\"30\" class=\"tx\">%.1f</text>"
+		"<text x=\"10\" y=\"%d\" class=\"tx\">%.1f</text>"
+		"\n</svg>\n",
+			maxv,
+			HEIGHT+PAD2-15,
+			minv);
+	//out = "</svg>\n";
+	server.sendContent(temp);
 }
 
-#if 0
-const char WUNDERGROUND_REQ[] PROGMEM =
-    "GET /api/" WU_KEY "/conditions/q/" WU_LOC ".json HTTP/1.1\r\n"
-    "User-Agent: ESP8266\r\n"
-    "Accept: */*\r\n"
-    "Host: " WU_HOST "\r\n"
-    "Connection: close\r\n"
-    "\r\n";
-
-void get_wu_data() {
-	//Serial.print(F("Connecting to "));
-	//Serial.println(WUNDERGROUND);
-
-	WiFiClient client;
-	if (!client.connect(WU_HOST, 80)) {
-		//Serial.println(F("connection failed"));
-		delay(DELAY_ERROR);
-		return;
-	}
-	// Send request
-	//Serial.print(WUNDERGROUND_REQ);
-	client.print(WUNDERGROUND_REQ);
-	client.flush();
-
-	// Collect http response headers and content from Weather Underground
-	// HTTP headers are discarded.
-	// The content is formatted in JSON and is left in respBuf.
-	int respLen = 0;
-	bool skip_headers = true;
-	//     "temp_f": 66.3,
-	//     "relative_humidity": "65%"
-	while (httpclient.connected() || httpclient.available()) {
-		if (skip_headers) {
-			String aLine = httpclient.readStringUntil('\n');
-			//Serial.println(aLine);
-			// Blank line denotes end of headers
-			if (aLine.length() <= 1) skip_headers = false;
-		} else {
-			int bytesIn;
-			bytesIn = httpclient.read((uint8_t *) & respBuf[respLen],
-				sizeof(respBuf) - respLen);
-			Serial.print(F("bytesIn "));
-			Serial.println(bytesIn);
-			if (bytesIn > 0) {
-				respLen += bytesIn;
-				if (respLen > sizeof(respBuf)) respLen = sizeof(respBuf);
-			} else if (bytesIn < 0) {
-				Serial.print(F("read error "));
-				Serial.println(bytesIn);
-			}
-		}
-		delay(1); // yield to esp
-	}
-	httpclient.stop();
-
-	if (respLen >= sizeof(respBuf)) {
-		//Serial.print(F("respBuf overflow "));
-		//Serial.println(respLen);
-		//delay(DELAY_ERROR);
-		return;
-	}
-	// Terminate the C string
-	respBuf[respLen++] = '\0';
-	Serial.print(F("respLen "));
-	Serial.println(respLen);
-	//Serial.println(respBuf);
-
-	if (showWeather(respBuf)) {
-		delay(DELAY_NORMAL);
-	} else {
-		delay(DELAY_ERROR);
-	}
+void loop(void) {
+	//delay(10);
+	//ArduinoOTA.handle();
+	temphumLoopHandler();
+	server.handleClient();
+	loop_ota();
 }
-#endif
