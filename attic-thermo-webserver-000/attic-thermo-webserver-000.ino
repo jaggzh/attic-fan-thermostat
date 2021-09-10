@@ -108,6 +108,11 @@ int fanOnTemp=DEF_FAN_TEMP;
 struct temphum_data_store dayData[DAY_DATAPOINTS+1];
 int dayStart=0;
 int dayNext=0;
+#define TEMPREAD_DELAY 1
+unsigned long last_tempread_secs=0;
+#define TEMPREAD_KEEP_CNT 10
+struct temphum_data_store recent_hf_temps[TEMPREAD_KEEP_CNT];
+
 #ifdef USE_DALLAS
 //uint8_t dal_addr=0; // this address method might be faster than byindex
 #endif
@@ -566,6 +571,16 @@ int get_and_store_temp(struct temphum_data *tdp, int store) {
 	return 0;
 }
 
+void update_temp() {
+	struct temphum_data_store reading;
+	if (!get_temphum_floats(&reading)) { // success
+		for (int i=TEMPREAD_KEEP_CNT-2; i>=0; i--) {
+			recent_hf_temps[i+1] = recent_hf_temps[i]; // shift up
+		}
+		recent_hf_temps[0] = reading; // copy struct
+	}
+}
+
 void temphumLoopHandler(void) {
 	unsigned long timeNow;
 	int seconds;
@@ -573,6 +588,10 @@ void temphumLoopHandler(void) {
 
 	timeNow = millis() / 1000;	// the number of milliseconds that have passed since boot
 	seconds = timeNow - time_last_read;	//the number of seconds that have passed since the last time 60 seconds was reached.
+	if (seconds - last_tempread_secs > TEMPREAD_DELAY) {
+		// Re-read temperature
+		update_temp();
+	}
 
 	state = ST_NORMAL
 	if (state == ST_MANUAL_REQUESTED) {
@@ -1356,8 +1375,10 @@ void handleRoot() {
 #ifdef USE_DALLAS
 	snprintf(temp, ROOT_MAX_HTML,
 		"Current temperature: <span class='f t'>%.2f°</span><br/>"
+		"Current high-freq temperature: <span class='f t'>%.2f°</span><br/>"
 		"",
-		td->df);
+		td->df,
+		recent_hf_temps->df);
 	out += temp;
 #endif
 	server.sendContent(out);
@@ -1909,7 +1930,7 @@ void drawGraph(int type) {
 void loop(void) {
 	//delay(10);
 	//ArduinoOTA.handle();
-	temphumLoopHandler();
-	server.handleClient();
 	loop_ota();
+	server.handleClient();
+	temphumLoopHandler();
 }
