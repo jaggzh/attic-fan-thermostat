@@ -489,8 +489,8 @@ void setup ( void ) {
 	pinMode(RELAYPIN, OUTPUT);
 	pinMode(led, OUTPUT);
 	digitalWrite(led, 0);
-	WiFi.mode(WIFI_STA);
 	Serial.begin(115200);
+	WiFi.mode(WIFI_STA);
 	WiFi.config(ip, gw, nm);
 	WiFi.begin(ssid, password);
 	sl("");
