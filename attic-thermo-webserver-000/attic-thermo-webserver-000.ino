@@ -111,6 +111,7 @@ int lastFanChange = 0;
 int relaystate=LOW;
 int fanOnTemp=DEF_FAN_TEMP;
 // longterm data: Add 1 just in case we're dumb and overrun
+char const *lastError="";
 struct temphum_data_minimal dayData[DAY_DATAPOINTS+1];
 int dayStart=0; // unused
 int dayNext=0;
@@ -191,14 +192,17 @@ int get_temphum_floats(struct temphum_data_detailed *td) {
 		float res;
 		ds18sensors.requestTemperatures();
 		res = ds18sensors.getTempFByIndex(0);
-		char temp[SMALL_HTML];
-		snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res);
-		sl(temp);
+		/* char temp[SMALL_HTML]; */
+		/* snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res); */
+		/* sl(temp); */
 		// Disconnected DS18B20 data line yields DEVICE_DISCONNECTED_F
 		// Disc. power lead yields 185 (also from getTempFbyindex())
 		if ((int)res == -196 || (int)res == 185) {
-			sl("DS18B20[0] !connected");
+			lastError="DS18B20[0] !connected";
+			//sl(lastError);
 			return 1;
+		} else {
+			lastError="";
 		}
 		td->df = res;
 	#endif
