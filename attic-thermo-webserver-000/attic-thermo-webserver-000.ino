@@ -192,9 +192,9 @@ int get_temphum_floats(struct temphum_data_detailed *tdp) {
 		float res;
 		ds18sensors.requestTemperatures();
 		res = ds18sensors.getTempFByIndex(0);
-		/* char temp[SMALL_HTML]; */
-		/* snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res); */
-		/* sl(temp); */
+		char temp[SMALL_HTML];
+		snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res);
+		sl(temp);
 		// Disconnected DS18B20 data line yields DEVICE_DISCONNECTED_F
 		// Disc. power lead yields 185 (also from getTempFbyindex())
 		if ((int)res == -196 || (int)res == 185) {
@@ -1123,5 +1123,5 @@ void loop(void) {
 	loop_ota();
 	server.handleClient();
 	temphumLoopHandler();
-	delay(10);
+	//delay(10);
 }
