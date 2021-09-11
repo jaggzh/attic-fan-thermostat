@@ -1,4 +1,5 @@
 #define __MAIN_INO__
+unsigned long int stored_temperatures = 0;
 #define USE_DALLAS      // Using DS18B20?
 // #define DUMP_DATA_SERIAL  // dump temp data, on hits, to serial
 //#define USE_DHT11       // Using DHT11 (d1 mini shield in my case)
@@ -14,7 +15,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 #ifdef SAVE_SPIFFS
-#include "FS.h"
+//#include "FS.h"
+#include "LittleFS.h" // LittleFS is declared
 #endif
 #include "ota.h"
 
@@ -49,10 +51,7 @@ DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Tempe
 #define GET_TEMP_ATTEMPTS 3 // attempts to make reading therm
 #define ROOT_MAX_HTML 800    // size of HTML buffer
 #define SMALL_HTML    300    // size of HTML buffer
-// Circle Buffer: Last-n (data array, nextVal, total vals, offset (n))
-// Example: tdp = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, 0);
-//          reads last entry.  n=1 would read the one before that
-#define CB_PRIOR_N(dat, nxtv, tot, n) (dat[nxtv-n>0 ? nxtv-n-1 : tot-n-1])
+
 #define DELAY_ERROR 500
 #define DELAY_NORMAL 500
 
@@ -100,18 +99,20 @@ struct temphum_data_detailed {
 
 #define MAX_DATAPOINTS 1440
 //#define CHECK_PERIOD 3  // seconds
-#define CHECK_PERIOD 120  // seconds
+//#define CHECK_PERIOD 120  // seconds
+#define CHECK_PERIOD 5  // seconds
 //#define DAY_DATAPOINTS (48*60*60/CHECK_PERIOD) // Every minute
 #define DAY_DATAPOINTS MAX_DATAPOINTS
 //#define DAY_DATAPOINTS (24*15)
 #define WEB_REFRESH_SECS "120"
+#define WEB_REFRESH_SECSI 120
 
 int lastFanChange = 0;
 int relaystate=LOW;
 int fanOnTemp=DEF_FAN_TEMP;
 // longterm data: Add 1 just in case we're dumb and overrun
 struct temphum_data_minimal dayData[DAY_DATAPOINTS+1];
-int dayStart=0;
+int dayStart=0; // unused
 int dayNext=0;
 #define TEMPREAD_DELAY_MILLIS 1000  // millis
 unsigned long last_tempread_millis=0;
@@ -134,6 +135,16 @@ void drawGraphH(void);
 
 void reset_lasttime(void) {
 	time_last = millis()/1000;
+}
+
+// Get from Circle Buffer: agei is age offset, a positive number
+//                         (1 would be 1 sample ago)
+//                         0 is the last-read sample
+struct temphum_data_minimal *get_lf_aged_samplep(int agei) {
+	// Macro version: ((dat)[(nxtv)-(n)>0 ? (nxtv)-(n)-1 : (tot)-(n)-1])
+	int offset = dayNext - 1 - agei;
+	if (offset < 0) offset += DAY_DATAPOINTS;
+	return dayData + offset;
 }
 
 // Get minimum and maximum temps
@@ -306,8 +317,7 @@ void refresh_printf(int secs, char *url, char *htmlopt, ...) {
 
 void refresh_send(int secs, const char *url, const char *htmlopt) {
 	char temp[SMALL_HTML];
-	int len;
-	len = snprintf(temp, SMALL_HTML,
+	snprintf(temp, SMALL_HTML,
 		"<html><head><meta http-equiv=refresh content='%d; url=%s' /></head><body>%s</body></html>",
 		secs, url, htmlopt ? htmlopt : ""
 	);
@@ -356,7 +366,7 @@ void handleRoot() {
 	int min = sec / 60;        // none of these are mod. they're totals.
 	int hr = min / 60;
 	int days = hr / 24;
-	struct temphum_data_minimal *td;
+	struct temphum_data_minimal *tdp;
 	float minf, maxf;
 	float minh, maxh;
 	String out = "";
@@ -367,28 +377,30 @@ void handleRoot() {
 	get_day_minmax(&minf, &maxf, TYPE_DEGF); // handles dallas and dht11
 	get_day_minmax(&minh, &maxh, TYPE_HUM);  // invalid results if no dht11
 	//int i = dayNext-1>0 ? dayNext-2 : DAY_DATAPOINTS-2;
-#ifdef USE_DALLAS
-	sp("DS18B20 DegF: ");
-	for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
-		td = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, i);
-		sp(td->df); sp(" ");
-	}
-	sp("\n");
-#endif
-#ifdef USE_DHT11
-	sp("DHT11 DegF: ");
-	for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
-		td = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, i);
-		sp(td->f); sp(" ");
-	}
-	sp("\nHum: ");
-	for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
-		td = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, i);
-		sp(td->h); sp(" ");
-	}
-	sp("\n");
-#endif
-	td = &CB_PRIOR_N(dayData, dayNext, DAY_DATAPOINTS, 0);
+	#ifdef DEBUG_DUMP_TEMPS_SERIAL
+		#ifdef USE_DALLAS
+			sp("DS18B20 DegF: ");
+			for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
+				tdp = get_lf_aged_samplep(i);
+				sp(tdp->df); sp(" ");
+			}
+			sp("\n");
+		#endif
+		#ifdef USE_DHT11
+			sp("DHT11 DegF: ");
+			for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
+				tdp = get_lf_aged_samplep(i);
+				sp(tdp->f); sp(" ");
+			}
+			sp("\nHum: ");
+			for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
+				tdp = get_lf_aged_samplep(i);
+				sp(tdp->h); sp(" ");
+			}
+			sp("\n");
+		#endif
+	#endif
+	tdp = get_lf_aged_samplep(0);
 	server.sendContent("HTTP/1.0 200 OK\r\n");
 	server.sendContent("Content-Type: text/html\r\n\r\n");
 	snprintf(temp, ROOT_MAX_HTML,
@@ -404,21 +416,23 @@ void handleRoot() {
 		"img{background:MidnightBlue}"
 		"p{margin:.5em .2em .5em .2em}"
 		".f{padding:0em 1em 0em 1em}" // padded data field
-		".fl{padding:0em 1em 0em .1em; font-size:75%%}" // padded data field
+		".fl{padding:0em 1em 0em .1em; font-size:65%%}" // padded data field
 		".fs{color:white;font-weight:bold}" // fan state
 		".on{background:green}"
 		".off{background:red}"
 		".t{background:yellow}"          // temp
-		".tl{background:#ffffbb}"         // multi temp listing
+		".tl{background:#ffffbb}"        // multi temp listing
+		".sss{font-size:30%%;}"          // extra extra small
 		"</style>"
 		"</head>"
 		"<body>\n");
 	server.sendContent(temp);
+
 	snprintf(temp, ROOT_MAX_HTML,
 		"<p>Uptime: %d days, %02dh %02dm %02ds [<a href=/update>Update</a>]<br/>"
-		"<i>Fan on @</i> %d°<br/>"
-		"Fan state: %s<br/>"
-		"Fan manually set: %s (Time left: %dh%dm%ds)<br/>"
+		"<small>Page reload in %ds</small><br/>"
+		"<i>Fan on @</i> %d°, Fan state: %s<br/>"
+		"Fan manually set: %s (Time left: %ldh%ldm%lds)<br/>"
 		"[<a href=foff>Off</a>]"
 		" [<a href=fon>On</a>: "
 		"{<a href=fon?m=30>30</a>,<a href=fon?m=60>60</a>}s "
@@ -429,6 +443,7 @@ void handleRoot() {
 		 "<a href=fon?m=5h>5</a>}h]<br/>"
 		"",
 		days, hr%24, min%60, sec%60,
+		WEB_REFRESH_SECSI,
 		fanOnTemp,
 		relaystate == LOW
 			? "<span class='f on'>OFF</span>"
@@ -445,20 +460,50 @@ void handleRoot() {
 		"DHT °F: %.2f (min: %.2f, max: %.2f)<br/>"
 		"DHT Hum: %.2f, Min: %.2f Max: %.2f<br/>"
 		"",
-		td->f, minf, maxf, td->h, minh, maxh);
+		tdp->f, minf, maxf, tdp->h, minh, maxh);
 	out += temp;
 #endif
 #ifdef USE_DALLAS
 	snprintf(temp, ROOT_MAX_HTML,
 		"Current temperature: <span class='f t'>%.2f°</span><br/>",
-		td->df);
+		tdp->df);
 	out += temp;
 	server.sendContent(out); out = "";
 
 	//////////// Temperature listing
 
-	sprintf(temp, "Current high-freq temperatures (every %ds):<br/>\n"
-		"<span class='fl tl'>", TEMPREAD_DELAY_MILLIS/1000);
+	snprintf(temp, ROOT_MAX_HTML,
+		"<div class=sss>All stored temps [start = %d, next = %d] (total stored ever: %lu): ",
+		dayStart, dayNext,
+		stored_temperatures);
+	server.sendContent(temp);
+	for (int i=0; i<DAY_DATAPOINTS; i++) {
+		tdp = dayData+i;
+		if (dayNext == i) {
+			snprintf(temp, ROOT_MAX_HTML, "<b>[ %.2f ]</b>, ", tdp->df);
+		} else {
+			snprintf(temp, ROOT_MAX_HTML, "%.2f, ", tdp->df);
+		}
+		out = temp;
+		server.sendContent(out);
+		out="";
+	}
+
+	server.sendContent("</div>");
+	server.sendContent("<div class=sss>All stored temps in time order: ");
+	for (int i=0; i<DAY_DATAPOINTS; i++) {
+		tdp = get_lf_aged_samplep(i);
+		snprintf(temp, ROOT_MAX_HTML, "%.2f, ", tdp->df);
+		out = temp;
+		server.sendContent(out);
+		out="";
+	}
+	server.sendContent("</div>");
+
+	sprintf(temp, "Current high-freq temperatures (%d x every %ds):<br/>\n"
+			"<span class='fl tl'>",
+		TEMP_HF_CNT,
+		TEMPREAD_DELAY_MILLIS/1000);
 	out += temp;
 	for (int i=TEMP_HF_CNT-1; i>=0; i--) {
 		sprintf(temp, "%.2f°", recent_hf_temps[i].df);
@@ -471,8 +516,9 @@ void handleRoot() {
 
 	median_hf_temp();
 
-	sprintf(temp, "Sorted:<br/>\n"
-		"<span class='fl tl'>");
+	sprintf(temp, "Sorted (most recent %d):<br/>\n"
+			"<span class='fl tl'>",
+		TEMP_HF_MEDIAN_CNT);
 	out += temp;
 	for (int i=TEMP_HF_MEDIAN_CNT-1; i>=0; i--) {
 		sprintf(temp, "%.2f°", cprectemps[i].df);
@@ -490,7 +536,8 @@ void handleRoot() {
 		"Data storage size: %d<br/>"
 		"FS used/total: %d/%d bytes<br/>"
 		"Max: %.2f°<br/>"
-		"<img src=/f.svg /><br/>"
+		//"<img src=/f.svg /><br/>"
+		"[ <a href=/f.svg>Graph</a> ]<br/>"
 		"Min: %.2f°<br/>"
 		"",
 		int(DAY_DATAPOINTS * CHECK_PERIOD / 60 / 60),   // all ints anyway
@@ -544,8 +591,8 @@ void handleNotFound() {
 }
 
 void loadTempTrigger(void) {
-	SPIFFS.begin();
-	File f = SPIFFS.open(FN_FANTEMP, "r");
+	LittleFS.begin();
+	File f = LittleFS.open(FN_FANTEMP, "r");
 	if (!f) sl(F("open failed")), fanOnTemp=DEF_FAN_TEMP;
 	else {
 		fanOnTemp = f.parseInt();
@@ -553,7 +600,7 @@ void loadTempTrigger(void) {
 		sl(fanOnTemp);
 		f.close();
 	}
-	SPIFFS.end();
+	LittleFS.end();
 }
 
 void setTempTrigger(void) {
@@ -561,8 +608,8 @@ void setTempTrigger(void) {
 	//char temp[110];
 	if (!isdigit(ns[0])) refresh_send(5, "/", "BAD NUMBER!");
 	else {
-		SPIFFS.begin();
-		File f = SPIFFS.open(FN_FANTEMP, "w");
+		LittleFS.begin();
+		File f = LittleFS.open(FN_FANTEMP, "w");
 		if (!f) sl("open error");
 		else {
 			fanOnTemp = ns.toInt();
@@ -572,7 +619,7 @@ void setTempTrigger(void) {
 			sp("set temp to ");
 			sl(fanOnTemp);
 		}
-		SPIFFS.end();
+		LittleFS.end();
 	}
 }
 
@@ -582,12 +629,12 @@ void setup(void) {
 	Serial.begin(115200);
 #ifdef INIT_SPIFFS
 	delay(3000);
-	Serial.println(F("Wait 30 secs SPIFFS format"));
-	bool result = SPIFFS.format();
-	Serial.print(F("Spiffs formatted result:"));
+	Serial.println(F("Wait 30 secs LittleFS format"));
+	bool result = LittleFS.format();
+	Serial.print(F("LittleFS formatted result:"));
 	Serial.println(result);
 #else
-  Serial.print(F("Skipping Spiff format")); 
+  Serial.print(F("Skipping LittleFS format")); 
 #endif
 
 #ifdef USE_DHT11
@@ -647,13 +694,13 @@ void setup(void) {
 	Serial.println ( F("HTTP svr started") );
 
 #ifdef SAVE_SPIFFS
-	//SPIFFS.begin();
+	//LittleFS.begin();
 #endif
-	SPIFFS.begin();
-	SPIFFS.info(fs_info);
-	Serial.print(F("Spiffs total bytes: "));
+	LittleFS.begin();
+	LittleFS.info(fs_info);
+	Serial.print(F("LittleFS total bytes: "));
 	Serial.println(fs_info.totalBytes);
-	SPIFFS.end();
+	LittleFS.end();
 	setup_ota();
 	previous_millis = millis();
 }
@@ -677,7 +724,8 @@ int get_temp(struct temphum_data_detailed *tdp) {
 
 void store_temp(struct temphum_data_detailed *tdp) {
 	struct temphum_data_minimal *storep;
-	storep = &(dayData[dayNext]);
+	stored_temperatures++;
+	storep = dayData + dayNext;
 	#ifdef USE_DHT11
 		storep->h = tdp->h;
 		storep->f = tdp->f;
@@ -685,10 +733,12 @@ void store_temp(struct temphum_data_detailed *tdp) {
 	#ifdef USE_DALLAS
 		storep->df = tdp->df;
 	#endif
-	if (++dayNext >= DAY_DATAPOINTS) dayNext=0;
+	dayNext++;
+	if (dayNext >= DAY_DATAPOINTS) dayNext=0;
 	//return 0;
 }
 
+#if 0 // no more since we work from median of higher frequency samples
 int get_and_store_temp(struct temphum_data_detailed *tdp) {
 	int rc=1;
 	struct temphum_data_minimal *storep;
@@ -711,9 +761,10 @@ int get_and_store_temp(struct temphum_data_detailed *tdp) {
 	if (++dayNext >= DAY_DATAPOINTS) dayNext=0;
 	return 0;
 }
+#endif
 
 void manual_fan_update(unsigned long diff_secs) {
-	unsigned int diff_mins = diff_secs/60;
+	//unsigned int diff_mins = diff_secs/60;
 	if (fan_on_manual && relaystate == HIGH) {
 		if (fan_on_limit_secs < diff_secs) {
 			fan_on_limit_secs = 0;
@@ -734,7 +785,9 @@ int sort_det_temps_asc(const void *d1, const void *d2) {
 }
 
 struct temphum_data_detailed median_hf_temp() {
-	memcpy(cprectemps, recent_hf_temps,   TEMP_HF_MEDIAN_CNT * sizeof(*recent_hf_temps));
+	memcpy(cprectemps,
+	       recent_hf_temps,
+	       TEMP_HF_MEDIAN_CNT * sizeof(*recent_hf_temps));
 	qsort(cprectemps, sizeof cprectemps, sizeof *cprectemps, sort_det_temps_asc);
 	return cprectemps[ (int)(TEMP_HF_MEDIAN_CNT / 2) ];
 }
@@ -752,7 +805,7 @@ int update_hf_temp() {
 }
 
 void temphumLoopHandler(void) {
-	unsigned long timeNow;
+	unsigned long secsNow;
 	int seconds;
 	struct temphum_data_detailed td;
 
@@ -771,8 +824,8 @@ void temphumLoopHandler(void) {
 		manual_fan_update(diff_secs);
 	}
 
-	timeNow = cur_millis / 1000;	// the number of milliseconds that have passed since boot
-	seconds = timeNow - time_last;	//the number of seconds that have passed since the last time CHECK_PERIOD seconds was reached.
+	secsNow = cur_millis / 1000;	// the number of milliseconds that have passed since boot
+	seconds = secsNow - time_last;	//the number of seconds that have passed since the last time CHECK_PERIOD seconds was reached.
 	if (cur_millis - last_tempread_millis > TEMPREAD_DELAY_MILLIS) {
 		// Re-read temperature
 		if (!update_hf_temp()) { // success
@@ -781,10 +834,10 @@ void temphumLoopHandler(void) {
 	}
 
 	if (seconds >= CHECK_PERIOD) {   // at or past time to get temperature
-		time_last = timeNow;  // Reset timer even if we don't get the data
+		time_last = secsNow;  // Reset timer even if we don't get the data
 			// Try twice to get temp data
 		td = median_hf_temp();
-		//if (!get_and_store_temp(&td) || !get_and_store_temp(&td)) {
+		store_temp(&td);
 		if (1) {
 			float curf;
 			#ifdef USE_DALLAS // more reliable
@@ -799,14 +852,14 @@ void temphumLoopHandler(void) {
 			// Don't do it unless FAN_MIN_SECS time has passed, to avoid
 			// it turning on/off too quickly.
 			if (!fan_on_manual) {
-				if (timeNow - lastFanChange > FAN_MIN_SECS) {
+				if (secsNow - lastFanChange > FAN_MIN_SECS) {
 					if (curf >= fanOnTemp && relaystate == LOW) {
 						sl(F("Fan turned ON"));
-						lastFanChange = timeNow;
+						lastFanChange = secsNow;
 						fanOn();
 					} else if (curf < fanOnTemp-FAN_THRESH && relaystate == HIGH) {
 						sl(F("Fan turned OFF"));
-						lastFanChange = timeNow;
+						lastFanChange = secsNow;
 						fanOff();
 					}
 				}
@@ -830,7 +883,7 @@ void dumpDataF() {
 	}
 	server.sendContent("HTTP/1.0 200 OK\r\n");
 	server.sendContent("Content-Type: text/plain\r\n\r\n");
-	n=0, i=dayNext+1;
+
 	server.sendContent("# Datapoints: " XSTR(DAY_DATAPOINTS) ", Sample secs: " XSTR(CHECK_PERIOD) "\n");
 	if (timei != 0) {
 		server.sendContent("#Time(s)\tTempF\n");
@@ -838,7 +891,9 @@ void dumpDataF() {
 		server.sendContent("#Seconds\tTempF\n");
 	}
 
-	for (;  n<DAY_DATAPOINTS, offt += CHECK_PERIOD;  n++, i++) {
+	n=0;
+	i=dayNext+1;
+	for (;  n<DAY_DATAPOINTS; offt += CHECK_PERIOD, n++, i++) {
 		struct temphum_data_minimal *ts;
 		char temp[24];
 		if (i>DAY_DATAPOINTS) i=0;
@@ -1063,7 +1118,7 @@ void drawGraph(int type) {
 void loop(void) {
 	//delay(10);
 	//ArduinoOTA.handle();
-	temphumLoopHandler();
-	server.handleClient();
 	loop_ota();
+	server.handleClient();
+	temphumLoopHandler();
 }

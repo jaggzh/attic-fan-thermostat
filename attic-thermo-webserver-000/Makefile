@@ -2,7 +2,7 @@ all:
 	echo 'You probably want to compile and upload from the Arduino IDE'
 	echo 'You can type "make vi" to edit the project files in vim though'
 
-tags:
+tags: *.ino *.h *.c *.cpp
 	ctags *.ino *.h *.c *.cpp
 
 vi:
