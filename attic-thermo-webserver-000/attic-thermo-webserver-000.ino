@@ -82,7 +82,6 @@ struct temphum_data_detailed {
 	#endif
 	#ifdef USE_DALLAS
 		float df; // for dallas reading degf
-		char dfs[7];
 	#endif
 };
 #define DEF_FAN_TEMP  110 // some days it's even hotter than this always though
@@ -100,7 +99,8 @@ struct temphum_data_detailed {
 #define MAX_DATAPOINTS 1440
 //#define CHECK_PERIOD 3  // seconds
 //#define CHECK_PERIOD 120  // seconds
-#define CHECK_PERIOD 5  // seconds
+//#define CHECK_PERIOD 5  // seconds
+#define CHECK_PERIOD 10  // seconds
 //#define DAY_DATAPOINTS (48*60*60/CHECK_PERIOD) // Every minute
 #define DAY_DATAPOINTS MAX_DATAPOINTS
 //#define DAY_DATAPOINTS (24*15)
@@ -110,6 +110,7 @@ struct temphum_data_detailed {
 int lastFanChange = 0;
 int relaystate=LOW;
 int fanOnTemp=DEF_FAN_TEMP;
+char *lastError="";
 // longterm data: Add 1 just in case we're dumb and overrun
 struct temphum_data_minimal dayData[DAY_DATAPOINTS+1];
 int dayStart=0; // unused
@@ -186,49 +187,51 @@ void get_day_minmax(float *minf, float *maxf, int type) {
 
 // humidity, degc, degf, heat index c, heat index f
 // ** does not fill string values in struct
-int get_temphum_floats(struct temphum_data_detailed *td) {
+int get_temphum_floats(struct temphum_data_detailed *tdp) {
 	#ifdef USE_DALLAS
 		float res;
 		ds18sensors.requestTemperatures();
 		res = ds18sensors.getTempFByIndex(0);
-		char temp[SMALL_HTML];
-		snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res);
-		sl(temp);
+		/* char temp[SMALL_HTML]; */
+		/* snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res); */
+		/* sl(temp); */
 		// Disconnected DS18B20 data line yields DEVICE_DISCONNECTED_F
 		// Disc. power lead yields 185 (also from getTempFbyindex())
 		if ((int)res == -196 || (int)res == 185) {
-			sl("DS18B20[0] !connected");
+			sl(lastError);
+			lastError = "DS18B20[0] !connected";
 			return 1;
 		}
-		td->df = res;
+		lastError = "No error";
+		tdp->df = res;
 	#endif
 	#ifdef USE_DHT11
-		td->h = dht.readHumidity(1); // force read
-		td->c = dht.readTemperature(false, 1); // celsius, (force it)
-		td->f = dht.readTemperature(true, 1);  // fahrenheit, (force it)
-		if (isnan(td->h)) { // extra tests just for more verbose reporting
+		tdp->h = dht.readHumidity(1); // force read
+		tdp->c = dht.readTemperature(false, 1); // celsius, (force it)
+		tdp->f = dht.readTemperature(true, 1);  // fahrenheit, (force it)
+		if (isnan(tdp->h)) { // extra tests just for more verbose reporting
 			Serial.print("Failed hum read\n");
 		}
-		if (isnan(td->c) || isnan(td->f)) {
+		if (isnan(tdp->c) || isnan(tdp->f)) {
 			Serial.print("Failed temp read\n");
 		}
-		if (isnan(td->h) || isnan(td->c) || isnan(td->f)) {
+		if (isnan(tdp->h) || isnan(tdp->c) || isnan(tdp->f)) {
 			//Serial.print("Failed to read hum, degc, or degf\n");
 			return 1;
 		}
-		td->hic = dht.computeHeatIndex(td->c, td->h, false);       
-		td->hif = dht.computeHeatIndex(td->f, td->h);       
+		tdp->hic = dht.computeHeatIndex(tdp->c, tdp->h, false);       
+		tdp->hif = dht.computeHeatIndex(tdp->f, tdp->h);       
 		// You can delete the following Serial.print's, it's just for debugging purposes
 		Serial.print("Hum: ");
-		Serial.print(td->h);
+		Serial.print(tdp->h);
 		Serial.print(" %\t Temp: ");
-		Serial.print(td->c);
+		Serial.print(tdp->c);
 		Serial.print(" *C ");
-		Serial.print(td->f);
+		Serial.print(tdp->f);
 		Serial.print(" *F\t Heat index: ");
-		Serial.print(td->hic);
+		Serial.print(tdp->hic);
 		Serial.print(" *C ");
-		Serial.print(td->hif);
+		Serial.print(tdp->hif);
 		Serial.print(" *F\n");
 	#endif
 	return 0;
@@ -287,11 +290,12 @@ void load_firstreading(void) {
 	// values -- at least they'll be consistent.
 	for (int i=0; i<DAY_DATAPOINTS; i++) {
 		#ifdef USE_DHT11
-		dayData[i].h = td.h;
-		dayData[i].f = td.f;
+			dayData[i].h = td.h;
+			dayData[i].f = td.f;
 		#endif
 		#ifdef USE_DALLAS
-		dayData[i].df = td.df;
+			dayData[i].df = td.df;
+			/* dayData[i].df = 1.0; */
 		#endif
 	}
 	for (int i=0; i<TEMP_HF_CNT; i++) {
@@ -1116,9 +1120,8 @@ void drawGraph(int type) {
 }
 
 void loop(void) {
-	//delay(10);
-	//ArduinoOTA.handle();
 	loop_ota();
 	server.handleClient();
 	temphumLoopHandler();
+	delay(10);
 }
