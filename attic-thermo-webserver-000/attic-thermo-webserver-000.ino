@@ -417,8 +417,8 @@ void handleRoot() {
 		"body{background:#eee;font-family:Sans-Serif;color:#008;font-size:170%%;}"
 		"form{padding:.1em .5em .1em .5em}"
 		"input{font-size:170%%;}"
-		"img{background:MidnightBlue; filter:drop-shadow(0 0 0.75rem crimson);}"
-		"p{margin:.5em .2em .5em .2em}"
+		"img{background:MidnightBlue;margin:.5em;filter:drop-shadow(0 0 0.45rem #4444dd);}"
+		"div,p{margin:.1em .2em .1em .2em}"
 		".f{padding:0em 1em 0em 1em}" // padded data field
 		".fl{padding:0em 1em 0em .1em; font-size:65%%}" // padded data field
 		".flo{white-space:nowrap;overflow:hidden;text-overflow:ellipses;}" // no flow
@@ -427,6 +427,7 @@ void handleRoot() {
 		".off{background:red}"
 		".t{background:yellow}"          // temp
 		".tl{background:#ffffbb}"        // multi temp listing
+		".ss{font-size:70%%;}"          // extra extra small
 		".sss{font-size:30%%;}"          // extra extra small
 		"</style>"
 		"</head>"
@@ -448,7 +449,9 @@ void handleRoot() {
 		"[<a href=foff>Off</a>]"
 		" [<a href=fon>On</a>: "
 		"{<a href=fon?m=30>30</a>,<a href=fon?m=60>60</a>}s "
-		"{<a href=fon?m=5m>5</a>,<a href=fon?m=20m>20</a>,"
+		"{"
+		"<a href=fon?m=3m>3</a>,<a href=fon?m=5m>5</a>,"
+		"<a href=fon?m=10m>10</a>,<a href=fon?m=20m>20</a>,"
 		 "<a href=fon?m=30m>30</a>,<a href=fon?m=45m>45</a>}m "
 		"{<a href=fon?m=1h>1</a>,<a href=fon?m=2h>2</a>,"
 		 "<a href=fon?m=3h>3</a>,<a href=fon?m=4h>4</a>,"
@@ -515,15 +518,15 @@ void handleRoot() {
 	server.sendContent("</div>");
 	#endif
 
-	sprintf(temp, "Current high-freq temperatures (%d x every %ds):\n"
+	sprintf(temp, "Current high-freq temperatures (%d * %ds):\n"
 			"<div class='fl tl flo'>",
 		TEMP_HF_CNT,
 		TEMPREAD_DELAY_MILLIS/1000);
 	out += temp;
-	for (int i=TEMP_HF_CNT-1; i>=0; i--) {
+	for (int i=0; i<TEMP_HF_CNT; i++) {
 		sprintf(temp, "%.2f°", recent_hf_temps[i].df);
 		out += temp;
-		if (i>0) out += ", ";
+		if (i<TEMP_HF_CNT-1) out += ", ";
 	}
 	out += "</div>";
 
@@ -548,14 +551,15 @@ void handleRoot() {
 	server.sendContent(out);
 	out="";
 	snprintf(temp, ROOT_MAX_HTML,
+		"<div class=sss>"
 		"XRange %dh%dm%ds. %d total samples, every %ds<br/>"
-		"Data storage size: %d<br/>"
-		"FS used/total: %d/%d bytes<br/>"
+		"Data storage size: %d, FS used/total: %d/%d bytes</span>"
+		"</div>"
 		"Max: %.2f°<br/>"
 		//"<img src=/f.svg /><br/>"
 		"<a href=/f.svg><img src=/f.svg /></a><br/>"
 		"Min: %.2f°<br/>"
-		"",
+		"</div>",
 		int(DAY_DATAPOINTS * CHECK_PERIOD / 60 / 60),   // all ints anyway
 		int((DAY_DATAPOINTS * CHECK_PERIOD / 60)) % 60, // have to be sure with %
 		int(DAY_DATAPOINTS * CHECK_PERIOD) % 60,
@@ -570,7 +574,7 @@ void handleRoot() {
 	out += F("<img src=/h.svg />");
 #endif
 	snprintf(temp, ROOT_MAX_HTML,
-		"<form action=sett><input type=number name=n value=%d size=4><input type=submit value=Set></form>"
+		"<div><form action=sett><input type=number name=n value=%d size=4><input type=submit value=Set></form>"
 		"Choose: ["
 		"<a href='sett?n=70'>70</a>, "
 		"<a href='sett?n=75'>75</a>, "
@@ -579,7 +583,7 @@ void handleRoot() {
 		"<a href='sett?n=120'>120</a>, "
 		"<a href='sett?n=125'>125</a>"
 		"] °F"
-		"</body></html>"
+		"</div></body></html>"
 		"",
 		fanOnTemp);
 	out += temp;
@@ -1120,7 +1124,7 @@ void drawGraph(int type) {
  	out += "</g>";
 	*/
 	sprintf(temp,
-		"<text x=\"10\" y=\"34\" class=\"tx\">%.1f</text>"
+		"<text x=\"10\" y=\"36\" class=\"tx\">%.1f</text>"
 		"<text x=\"10\" y=\"%d\" class=\"tx\">%.1f</text>"
 		"\n</svg>\n",
 			maxv,
