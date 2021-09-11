@@ -82,6 +82,7 @@ struct temphum_data_detailed {
 	#endif
 	#ifdef USE_DALLAS
 		float df; // for dallas reading degf
+		/* char dfs[7]; */
 	#endif
 };
 #define DEF_FAN_TEMP  110 // some days it's even hotter than this always though
@@ -97,15 +98,14 @@ struct temphum_data_detailed {
 #define SECS_TEMP_CHECK 5
 
 #define MAX_DATAPOINTS 1440
-//#define CHECK_PERIOD 3  // seconds
-//#define CHECK_PERIOD 120  // seconds
-//#define CHECK_PERIOD 5  // seconds
-#define CHECK_PERIOD 10  // seconds
+#define CHECK_PERIOD 120  // seconds
+/* #define CHECK_PERIOD 5  // seconds */
+/* #define CHECK_PERIOD 10  // seconds */
 //#define DAY_DATAPOINTS (48*60*60/CHECK_PERIOD) // Every minute
 #define DAY_DATAPOINTS MAX_DATAPOINTS
 //#define DAY_DATAPOINTS (24*15)
-#define WEB_REFRESH_SECS "120"
-#define WEB_REFRESH_SECSI 120
+#define WEB_REFRESH_SECS "110"
+#define WEB_REFRESH_SECSI 110
 
 int lastFanChange = 0;
 int relaystate=LOW;
@@ -417,10 +417,11 @@ void handleRoot() {
 		"body{background:#eee;font-family:Sans-Serif;color:#008;font-size:170%%;}"
 		"form{padding:.1em .5em .1em .5em}"
 		"input{font-size:170%%;}"
-		"img{background:MidnightBlue}"
+		"img{background:MidnightBlue; filter:drop-shadow(0 0 0.75rem crimson);}"
 		"p{margin:.5em .2em .5em .2em}"
 		".f{padding:0em 1em 0em 1em}" // padded data field
 		".fl{padding:0em 1em 0em .1em; font-size:65%%}" // padded data field
+		".flo{white-space:nowrap;overflow:hidden;text-overflow:ellipses;}" // no flow
 		".fs{color:white;font-weight:bold}" // fan state
 		".on{background:green}"
 		".off{background:red}"
@@ -431,6 +432,13 @@ void handleRoot() {
 		"</head>"
 		"<body>\n");
 	server.sendContent(temp);
+	/* snprintf(temp, ROOT_MAX_HTML, */
+	/* 	"Sizeof: (dayData)=%d, (*dayData)=%d,<br />\n" */
+	/* 	"sizeof cprectemps=%d, sizeof *cprectemps=%d", */
+	/* 	sizeof(dayData), */
+	/* 	sizeof(*dayData), */
+	/* 	sizeof cprectemps, sizeof *cprectemps); */
+	/* server.sendContent(temp); */
 
 	snprintf(temp, ROOT_MAX_HTML,
 		"<p>Uptime: %d days, %02dh %02dm %02ds [<a href=/update>Update</a>]<br/>"
@@ -469,13 +477,15 @@ void handleRoot() {
 #endif
 #ifdef USE_DALLAS
 	snprintf(temp, ROOT_MAX_HTML,
-		"Current temperature: <span class='f t'>%.2f°</span><br/>",
-		tdp->df);
+		"Current temperature reading: <span class='f t'>%.2f°</span><br/>",
+		recent_hf_temps[0].df);
+		/* tdp->df); */
 	out += temp;
 	server.sendContent(out); out = "";
 
 	//////////// Temperature listing
 
+	#if 0
 	snprintf(temp, ROOT_MAX_HTML,
 		"<div class=sss>All stored temps [start = %d, next = %d] (total stored ever: %lu): ",
 		dayStart, dayNext,
@@ -503,9 +513,10 @@ void handleRoot() {
 		out="";
 	}
 	server.sendContent("</div>");
+	#endif
 
-	sprintf(temp, "Current high-freq temperatures (%d x every %ds):<br/>\n"
-			"<span class='fl tl'>",
+	sprintf(temp, "Current high-freq temperatures (%d x every %ds):\n"
+			"<div class='fl tl flo'>",
 		TEMP_HF_CNT,
 		TEMPREAD_DELAY_MILLIS/1000);
 	out += temp;
@@ -514,22 +525,23 @@ void handleRoot() {
 		out += temp;
 		if (i>0) out += ", ";
 	}
-	out += "</span><br/>";
+	out += "</div>";
 
-	//////////// Sorted emperature listing
-
-	median_hf_temp();
-
-	sprintf(temp, "Sorted (most recent %d):<br/>\n"
-			"<span class='fl tl'>",
-		TEMP_HF_MEDIAN_CNT);
-	out += temp;
-	for (int i=TEMP_HF_MEDIAN_CNT-1; i>=0; i--) {
-		sprintf(temp, "%.2f°", cprectemps[i].df);
+	//////////// Sorted temperature listing
+	#if 0
+		median_hf_temp();
+	
+		sprintf(temp, "Sorted (most recent %d):\n"
+				"<div class='fl tl flo'>",
+			TEMP_HF_MEDIAN_CNT);
 		out += temp;
-		if (i>0) out += ", ";
-	}
-	out += "</span><br/>";
+		for (int i=TEMP_HF_MEDIAN_CNT-1; i>=0; i--) {
+			sprintf(temp, "%.2f°", cprectemps[i].df);
+			out += temp;
+			if (i>0) out += ", ";
+		}
+		out += "</div>";
+	#endif
 
 
 #endif
@@ -541,7 +553,7 @@ void handleRoot() {
 		"FS used/total: %d/%d bytes<br/>"
 		"Max: %.2f°<br/>"
 		//"<img src=/f.svg /><br/>"
-		"[ <a href=/f.svg>Graph</a> ]<br/>"
+		"<a href=/f.svg><img src=/f.svg /></a><br/>"
 		"Min: %.2f°<br/>"
 		"",
 		int(DAY_DATAPOINTS * CHECK_PERIOD / 60 / 60),   // all ints anyway
@@ -792,7 +804,7 @@ struct temphum_data_detailed median_hf_temp() {
 	memcpy(cprectemps,
 	       recent_hf_temps,
 	       TEMP_HF_MEDIAN_CNT * sizeof(*recent_hf_temps));
-	qsort(cprectemps, sizeof cprectemps, sizeof *cprectemps, sort_det_temps_asc);
+	qsort(cprectemps, sizeof cprectemps / sizeof *cprectemps, sizeof *cprectemps, sort_det_temps_asc);
 	return cprectemps[ (int)(TEMP_HF_MEDIAN_CNT / 2) ];
 }
 
@@ -1108,7 +1120,7 @@ void drawGraph(int type) {
  	out += "</g>";
 	*/
 	sprintf(temp,
-		"<text x=\"10\" y=\"30\" class=\"tx\">%.1f</text>"
+		"<text x=\"10\" y=\"34\" class=\"tx\">%.1f</text>"
 		"<text x=\"10\" y=\"%d\" class=\"tx\">%.1f</text>"
 		"\n</svg>\n",
 			maxv,
