@@ -23,9 +23,11 @@ unsigned long int stored_temperatures = 0;
 #ifdef USE_DALLAS
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#define DALPIN 0   // data pin for ds18b20
+#define DALPIN D4   // data pin for ds18b20 (D4 = 2)
 OneWire oneWire(DALPIN); // on our pin (bus), but for any onewire devices
 DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Temperature. 
+DeviceAddress thermaddress;
+int thermocount = 1; // just forcing this on for now (since we're not doing the update call and load_firstreading() requires the thermo to be found)
 #endif
 
 //#include <ArduinoOTA.h>
@@ -110,7 +112,8 @@ struct temphum_data_detailed {
 int lastFanChange = 0;
 int relaystate=LOW;
 int fanOnTemp=DEF_FAN_TEMP;
-char *lastError="";
+#define NO_ERR_STR "No error"
+char const *lastError=NO_ERR_STR;
 // longterm data: Add 1 just in case we're dumb and overrun
 struct temphum_data_minimal dayData[DAY_DATAPOINTS+1];
 int dayStart=0; // unused
@@ -197,12 +200,12 @@ int get_temphum_floats(struct temphum_data_detailed *tdp) {
 		sl(temp);
 		// Disconnected DS18B20 data line yields DEVICE_DISCONNECTED_F
 		// Disc. power lead yields 185 (also from getTempFbyindex())
-		if ((int)res == -196 || (int)res == 185) {
+		if ((int)res == DEVICE_DISCONNECTED_F) {
 			sl(lastError);
 			lastError = "DS18B20[0] !connected";
 			return 1;
 		}
-		lastError = "No error";
+		lastError = NO_ERR_STR;
 		tdp->df = res;
 	#endif
 	#ifdef USE_DHT11
@@ -268,14 +271,18 @@ void load_firstreading(void) {
 	int succ=0;
 	// try a lot of times to get a reading
 	sl("Reading initial temp data");
-
-	for (int i=0; i<GET_TEMP_ATTEMPTS; i++) {
-		if (!get_temphum_floats(&td)) {
-			succ++;
-		} else {
-			sl("Failed initial read, trying 3 times\n");
+	if (thermocount < 1) {
+		sl("No thermometers found yet. Postponing reading");
+		// succ=0; already set
+	} else {
+		for (int i=0; i<GET_TEMP_ATTEMPTS; i++) {
+			if (!get_temphum_floats(&td)) {
+				succ++;
+			} else {
+				sl("Failed initial read, trying 3 times\n");
+			}
+			delay(100);
 		}
-		delay(100);
 	}
 	if (!succ) {
 		#ifdef USE_DHT11
@@ -357,10 +364,12 @@ void fanOffHTTP() {
 	refresh_send(2, "/", (char *)F("Turned off"));
 }
 void fanOn() {
-	digitalWrite(RELAYPIN, relaystate = HIGH);
+	relaystate = HIGH;
+	digitalWrite(RELAYPIN, relaystate);
 }
 void fanOff() {
-	digitalWrite(RELAYPIN, relaystate = LOW);
+	relaystate = LOW;
+	digitalWrite(RELAYPIN, relaystate);
 }
 
 void handleRoot() {
@@ -443,7 +452,7 @@ void handleRoot() {
 
 	snprintf(temp, ROOT_MAX_HTML,
 		"<p>Uptime: %d days, %02dh %02dm %02ds [<a href=/update>Update</a>]<br/>"
-		"<small>Page reload in %ds</small><br/>"
+		"<small><small>Page reload in %ds. Temp sensor error: %s</small></small><br/>"
 		"<i>Fan on @</i> %d°, Fan state: %s<br/>"
 		"Fan manually set: %s (Time left: %ldh%ldm%lds)<br/>"
 		"[<a href=foff>Off</a>]"
@@ -459,6 +468,7 @@ void handleRoot() {
 		"",
 		days, hr%24, min%60, sec%60,
 		WEB_REFRESH_SECSI,
+		lastError,
 		fanOnTemp,
 		relaystate == LOW
 			? "<span class='f on'>OFF</span>"
@@ -643,6 +653,32 @@ void setTempTrigger(void) {
 	}
 }
 
+#define REPEAT_FIND_TEMPSENSOR_MILLIS 1000
+
+void find_update_tempsensor() {
+	Serial.println("Locating devices...");
+	Serial.print("Found ");
+	thermocount = ds18sensors.getDeviceCount();
+	Serial.print(thermocount, DEC);
+	Serial.println(" devices.");
+	Serial.print("Device 0 address: ");
+	ds18sensors.getAddress(thermaddress, 0);
+}
+
+void find_update_tempsensor_timed(int milliz) {
+	// Finds sensors only if none were found before.
+	// Will also not check too frequently (REPEAT_FIND_TEMPSENSOR_MILLIS)
+	// it tests against milliz or, if 0, will retrieve millis()
+	// can pass milliz=millis() or, if 0, it will retrieve them
+	static unsigned long last_tempsensor_find_millis=0;
+	//if (thermocount < 1) {
+	if (!milliz) milliz = millis();
+	if (milliz - last_tempsensor_find_millis > REPEAT_FIND_TEMPSENSOR_MILLIS) {
+		find_update_tempsensor();
+		last_tempsensor_find_millis = REPEAT_FIND_TEMPSENSOR_MILLIS;
+	}
+}
+
 void setup(void) {
 	// We set the initial millis() at the end of setup()
 	// >> previous_millis = millis();
@@ -662,6 +698,7 @@ void setup(void) {
 #endif
 #ifdef USE_DALLAS
 	ds18sensors.begin();
+	//find_update_tempsensor();
 #endif
 
 	relaystate = digitalRead(RELAYPIN);
