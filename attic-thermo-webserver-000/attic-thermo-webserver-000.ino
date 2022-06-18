@@ -335,6 +335,12 @@ void refresh_send(int secs, const char *url, const char *htmlopt) {
 	server.send(200, "text/html", temp);
 }
 
+void handleRst() {
+	refresh_send(5, "/", (char *)F("Resetting (5s...)"));
+	for (int i=0; i<500; i+=10) { yield(); delay(10); }
+	ESP.reset();
+}
+
 void fanOnHTTP() {
 	String minss=server.arg("m"); // minutes (optional) (actually seconds)
 	unsigned int minsi;
@@ -592,7 +598,7 @@ void handleRoot() {
 		"<a href='sett?n=115'>115</a>, "
 		"<a href='sett?n=120'>120</a>, "
 		"<a href='sett?n=125'>125</a>"
-		"] °F"
+		"] °F [<a href=/rst>Reset</a>]"
 		"</div></body></html>"
 		"",
 		fanOnTemp);
@@ -742,6 +748,7 @@ void setup(void) {
 	server.on(F("/foff"), fanOffHTTP );
 	server.on(F("/f.svg"), drawGraphF );
 	server.on(F("/h.svg"), drawGraphH );
+	server.on(F("/rst"), handleRst );
 	server.on(F("/f.txt"), dumpDataF );
 	server.on(F("/sett"), setTempTrigger );
 	//server.on("/inline", []() {server.send(200,"text/plain","this works as well"); });
@@ -1084,7 +1091,8 @@ void drawGraph(int type) {
 		out = "<g stroke='MediumOrchid'>\n";
 		for (n=0; n<DAY_DATAPOINTS-1; n++, i++) {
 			int i2;           // i+1's next datapoint index
-			int y, y2, x, x2; // output svg coords
+			int x, x2;        // output svg coords
+			float y, y2;      // output svg coords
 			float val1, val2; // humidity or degf (based on type parameter)
 	
 			if (i>=DAY_DATAPOINTS) i=0; // Handle circular buffer wrap
@@ -1102,7 +1110,30 @@ void drawGraph(int type) {
 			y = ((val1 - minv) / (maxv-minv)) * HEIGHT;
 			y2 = ((val2 - minv) / (maxv-minv)) * HEIGHT;
 	
-	 		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n", x+10, 10 + (HEIGHT-y), x2+10, 10 + (HEIGHT-y2));
+			int finx1, finx2;
+			int finy1, finy2;
+			finx1 = x+10;
+			finx2 = x2+10;
+			finy1 = 10 + (HEIGHT-y);
+			finy2 = 10 + (HEIGHT-y2);
+	 		sprintf(temp,
+	 			"<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
+	 			finx1, (int)finy1, finx2, (int)finy2);
+			/* char finy1dec1, finy2dec1; // used for optional decimal part string */
+	 		/* Working on optional xxx.y 1-digit decimal place floats that
+	 		 * are optional for bandwidth efficiency */
+			/* char *flopoint1(float v) { */
+			/* 	char buf[3]=".x"; */
+			/* 	int intpart = (int)v; */
+			/* 	float decpart = v-intpart; // 0.vwxyz */
+			/* 	intpart = decpart*100;     // vw */
+			/* 	if (vw < 5) return "";     // (dec < ".05") is .0 so "" */
+			/* 	buf[1]=(intpart/10) */
+			/* } */
+	 		/* sprintf(temp, */
+	 		/* 	"<line x1=\"%d\" y1=\"%d%s\" x2=\"%d\" y2=\"%d%s\" />\n", */
+	 		/* 	finx1, (int)finy1, flopoint1(finy1), */
+	 		/* 	finx2, (int)finy2, flopoint1(finy1)); */
 
 			// Send out data since it can get too big
 			// HTTP_UPLOAD_BUFLEN comes from ESP8266WebServer.h
