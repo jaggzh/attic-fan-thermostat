@@ -99,8 +99,11 @@ struct temphum_data_detailed {
 */
 #define SECS_TEMP_CHECK 5
 
-#define MAX_DATAPOINTS 1440
+/************************************************
+ Checking every 2 min gives 720 samples per day
+ ***********************************************/
 #define CHECK_PERIOD 120  // seconds
+#define MAX_DATAPOINTS (720*7) // let's see if we can keep a week
 /* #define CHECK_PERIOD 5  // seconds */
 /* #define CHECK_PERIOD 10  // seconds */
 //#define DAY_DATAPOINTS (48*60*60/CHECK_PERIOD) // Every minute
@@ -121,7 +124,7 @@ int dayNext=0;
 #define TEMPREAD_DELAY_MILLIS 1000  // millis
 unsigned long last_tempread_millis=0;
 #define TEMP_HF_CNT 60
-#define TEMP_HF_MEDIAN_CNT 15
+#define TEMP_HF_MEDIAN_CNT 7
 #if TEMP_HF_MEDIAN_CNT > TEMP_HF_CNT
 	#error "TEMP_HF_MEDIAN_CNT too big. Must be smaller buffer than TEMP_HF_CNT"
 #endif
@@ -1006,7 +1009,7 @@ void drawGraph(int type) {
 	}
 	sl("");
 #endif
-#define WIDTH  640
+#define WIDTH  (1200)
 #define HEIGHT 280
 #define PAD    10
 #define PAD2   (PAD*2)
@@ -1038,7 +1041,8 @@ void drawGraph(int type) {
 		".vg{stroke-width:1;stroke:#315A5C;}"
     ".tx{fill:red;font-size:200%;}"
 		"]]></style>"
-		"</defs>"));
+		"</defs>"
+		"<rect width='100%' height='100%' fill='#191970' />"));
  	//out += temp;
 
 #define RANGECONV(i, smin, smax, dmin, dmax) \
