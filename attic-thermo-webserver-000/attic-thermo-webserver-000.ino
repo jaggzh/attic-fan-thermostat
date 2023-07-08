@@ -36,6 +36,8 @@ int thermocount = 1; // just forcing this on for now (since we're not doing the 
 //#include <ArduinoOTA.h>
 #include "wifi_config.h" // This sets actual values (gross): ssid, password. ip, gw, nm
 
+#define DISCONNECT server.client().stop()
+
 #define RELAYPIN 5	// D1 = 1 for NodeMCU, but we're using Arduino so D1 = 5
 
 #ifdef USE_DHT
@@ -801,7 +803,7 @@ void setup(void) {
 	server.on(F("/f.txt"), dumpDataF );
 	server.on(F("/restoredata"),
 		HTTP_POST,
-		[](){},
+		[](){ server.send(200); },
 		restoreDataF
 	);
 	server.on(F("/sett"), setTempTrigger );
@@ -1083,8 +1085,6 @@ struct temphum_data_minimal parseData(char* data) {
 	sscanf(data, "%f", &(ts.df));
 	return ts;
 }
-
-#define DISCONNECT server.client().stop()
 
 void drawGraphF() {
 	drawGraph(TYPE_DEGF);
