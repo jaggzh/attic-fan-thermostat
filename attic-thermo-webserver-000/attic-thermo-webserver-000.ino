@@ -1,4 +1,7 @@
 #define __MAIN_INO__
+
+#define DEBUG_LOGS
+
 unsigned long int stored_temperatures = 0;
 #define USE_DALLAS		// Using DS18B20?
 // #define DUMP_DATA_SERIAL  // dump temp data, on hits, to serial
@@ -111,6 +114,22 @@ struct temphum_data_detailed {
 //#define DAY_DATAPOINTS (24*15)
 #define WEB_REFRESH_SECS "110"
 #define WEB_REFRESH_SECSI 110
+
+/// For /restoredata / restoreDataF
+String leftover = ""; // To store any incomplete data at the end of a chunk
+int storei = 0; // Add this line to declare the variable storei
+
+#ifndef DEBUG_LOGS
+	#define addlog(v)
+#else
+	#define LOGSMAX 10
+	const char *logstrs[LOGSMAX] = {0,0,0,0,0,0,0,0,0,0};
+	int logi=0;
+	void addlog(const char *s) {
+		if (logi<LOGSMAX) logstrs[logi++] = s;
+	}
+#endif
+
 
 int lastFanChange = 0;
 int relaystate=LOW;
@@ -343,6 +362,30 @@ void handleRst() {
 	for (int i=0; i<500; i+=10) { yield(); delay(10); }
 	ESP.reset();
 }
+
+char *atoi(int i) {
+	static char temp[10];
+	snprintf(temp, 9, "%d", i);
+	return temp;
+}
+
+#ifdef DEBUG_LOGS
+	void handleLog() {
+		server.sendContent(F("HTTP/1.0 200 OK\r\n"));
+		server.sendContent(F("Content-Type: text/plain\r\n\r\n"));
+	
+		server.sendContent(F("  Begin logs:\n"));
+		server.sendContent(F("  log count: "));
+		server.sendContent(atoi(logi));
+		server.sendContent("\n");
+		for (int i=0; i<LOGSMAX && logstrs[i]; i++) {
+			server.sendContent(logstrs[i]);
+			server.sendContent("\n");
+		}
+		server.sendContent(F("  end logs\n"));
+		server.client().stop();
+	}
+#endif
 
 void fanOnHTTP() {
 	String minss=server.arg("m"); // minutes (optional) (actually seconds)
@@ -752,8 +795,15 @@ void setup(void) {
 	server.on(F("/f.svg"), drawGraphF );
 	server.on(F("/h.svg"), drawGraphH );
 	server.on(F("/rst"), handleRst );
+	#ifdef DEBUG_LOGS
+		server.on(F("/log"), handleLog );
+	#endif
 	server.on(F("/f.txt"), dumpDataF );
-	server.on(F("/putftxt"), restoreDataF );
+	server.on(F("/restoredata"),
+		HTTP_POST,
+		[](){},
+		restoreDataF
+	);
 	server.on(F("/sett"), setTempTrigger );
 	//server.on("/inline", []() {server.send(200,"text/plain","this works as well"); });
 	httpUpdater.setup(&server, update_user, update_pw); // adds /update path for OTA
@@ -771,6 +821,7 @@ void setup(void) {
 	LittleFS.end();
 	setup_ota();
 	previous_millis = millis();
+	addlog("ESP is up");
 }
 
 // Gets temperature, puts into struct at tdp.
@@ -971,16 +1022,16 @@ void dumpDataF() {
 	}
 }
 
-String leftover = ""; // To store any incomplete data at the end of a chunk
-int storei = 0; // Add this line to declare the variable storei
-
 void restoreDataF() {
 	HTTPUpload& upload = server.upload();
+	addlog("/restoreDataF hit");
 	if(upload.status == UPLOAD_FILE_START){
+		addlog("Start");
 		Serial.print("restoreDataF Name: "); Serial.println(upload.filename);
 		leftover = ""; // Reset leftover data at the start of a new upload
 		storei = 0; // Reset the index at the start of a new upload
 	} else if(upload.status == UPLOAD_FILE_WRITE){
+		addlog("UL");
 		// Create a null-terminated string from the byte array
 		char buf[upload.currentSize + 1];
 		memcpy(buf, upload.buf, upload.currentSize);
@@ -1009,6 +1060,7 @@ void restoreDataF() {
 			token = nextToken;
 		}
 	} else if(upload.status == UPLOAD_FILE_END){
+		addlog("UL done");
 		if (leftover.length() > 0) {
 			// If there's any leftover data at the end of the upload, parse it now
 			int len = leftover.length();
@@ -1020,7 +1072,7 @@ void restoreDataF() {
 			leftover = "";
 		}
 		Serial.print("restoreDataF Size: "); Serial.println(upload.totalSize);
-		server.send(200, "text/plain", "Data restored successfully.");
+		server.send(200, "text/plain", "Data restored successfully.\n");
 	}
 }
 
@@ -1032,8 +1084,12 @@ struct temphum_data_minimal parseData(char* data) {
 	return ts;
 }
 
+#define DISCONNECT server.client().stop()
 
-void drawGraphF() { drawGraph(TYPE_DEGF); }
+void drawGraphF() {
+	drawGraph(TYPE_DEGF);
+	DISCONNECT;
+}
 void drawGraphH() {
 #ifdef USE_DHT11
 	drawGraph(TYPE_HUM);

@@ -6,4 +6,10 @@ tags: *.ino *.h *.c *.cpp
 	ctags *.ino *.h *.c *.cpp
 
 vi:
-	vim Makefile ../README.md attic-thermo-webserver-000.ino wifi_config.h ota.cpp ota.h
+	vim Makefile \
+		../README.md \
+		attic-thermo-webserver-000.ino \
+		wifi_config.h \
+		wifi_config--example.h \
+		ota.cpp \
+		ota.h

@@ -6,7 +6,9 @@ IPAddress nm(255, 255, 255, 0); // Netmask
 const char *update_user = "myaccount"; // HTTP auth user for OTA http update
 const char *update_pw = "mypassword";  // HTTP auth password
 
-// Wunderground weather API details
-#define WU_HOST "api.wunderground.com"
-#define WU_KEY  "your key here" // Sign up for a key
-#define WU_LOC  "ST/City"       // Your 2-letter State code and / City
+// Wunderground weather API details (no longer available)
+/* #define WU_HOST "api.wunderground.com" */
+/* #define WU_KEY  "your key here" // Sign up for a key */
+/* #define WU_LOC  "ST/City"       // Your 2-letter State code and / City */
+
+#define MDNS_NAME "thermostat-fan-controller"
