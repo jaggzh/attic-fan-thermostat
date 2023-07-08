@@ -124,7 +124,7 @@ int storei = 0; // Add this line to declare the variable storei
 #ifndef DEBUG_LOGS
 	#define addlog(v)
 #else
-	#define LOGSMAX 10
+	#define LOGSMAX 40
 	const char *logstrs[LOGSMAX] = {0,0,0,0,0,0,0,0,0,0};
 	int logi=0;
 	void addlog(const char *s) {
@@ -803,7 +803,11 @@ void setup(void) {
 	server.on(F("/f.txt"), dumpDataF );
 	server.on(F("/restoredata"),
 		HTTP_POST,
-		[](){ server.send(200); },
+		[](){
+			server.sendContent("HTTP/1.0 200 OK\r\n");
+			server.sendContent("Content-Type: text/plain\r\n\r\nReady for data\n");
+			addlog("Sent 200 response");
+		},
 		restoreDataF
 	);
 	server.on(F("/sett"), setTempTrigger );
@@ -824,6 +828,7 @@ void setup(void) {
 	setup_ota();
 	previous_millis = millis();
 	addlog("ESP is up");
+	addlog("ESP is truly up");
 }
 
 // Gets temperature, puts into struct at tdp.
@@ -1054,6 +1059,8 @@ void restoreDataF() {
 				// then this token might be incomplete. Store it in leftover to be prepended to the next chunk.
 				leftover = String(token);
 			} else {
+				addlog(" Token");
+				addlog(token);
 				// Parse the token into a temphum_data_minimal struct
 				struct temphum_data_minimal ts = parseData(token);
 				dayData[storei] = ts;
