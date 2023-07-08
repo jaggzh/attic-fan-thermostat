@@ -1,12 +1,12 @@
 #define __MAIN_INO__
 unsigned long int stored_temperatures = 0;
-#define USE_DALLAS      // Using DS18B20?
+#define USE_DALLAS		// Using DS18B20?
 // #define DUMP_DATA_SERIAL  // dump temp data, on hits, to serial
-//#define USE_DHT11       // Using DHT11 (d1 mini shield in my case)
-#define SAVE_SPIFFS     // save temperature setting to spiffs
+//#define USE_DHT11		  // Using DHT11 (d1 mini shield in my case)
+#define SAVE_SPIFFS		// save temperature setting to spiffs
 
 #ifdef SAVE_SPIFFS
-//#define INIT_SPIFFS   // define if you want to format fs
+//#define INIT_SPIFFS	// define if you want to format fs
 #endif
 
 #include <ESP8266WiFi.h>
@@ -23,7 +23,7 @@ unsigned long int stored_temperatures = 0;
 #ifdef USE_DALLAS
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#define DALPIN D4   // data pin for ds18b20 (D4 = 2)
+#define DALPIN D4	// data pin for ds18b20 (D4 = 2)
 OneWire oneWire(DALPIN); // on our pin (bus), but for any onewire devices
 DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Temperature. 
 DeviceAddress thermaddress;
@@ -33,11 +33,11 @@ int thermocount = 1; // just forcing this on for now (since we're not doing the 
 //#include <ArduinoOTA.h>
 #include "wifi_config.h" // This sets actual values (gross): ssid, password. ip, gw, nm
 
-#define RELAYPIN 5  // D1 = 1 for NodeMCU, but we're using Arduino so D1 = 5
+#define RELAYPIN 5	// D1 = 1 for NodeMCU, but we're using Arduino so D1 = 5
 
 #ifdef USE_DHT
 #include "DHT.h"
-#define DHTPIN  2     // D4 = 2 (D4, 2, is shield's pin)
+#define DHTPIN	2	  // D4 = 2 (D4, 2, is shield's pin)
 #define DHTTYPE DHT11 // DHT11
 #endif
 
@@ -51,8 +51,8 @@ int thermocount = 1; // just forcing this on for now (since we're not doing the 
 #define TYPE_DEGF 1  // Graph types: Degrees / humidity
 #define TYPE_HUM  2
 #define GET_TEMP_ATTEMPTS 3 // attempts to make reading therm
-#define ROOT_MAX_HTML 800    // size of HTML buffer
-#define SMALL_HTML    300    // size of HTML buffer
+#define ROOT_MAX_HTML 800	 // size of HTML buffer
+#define SMALL_HTML	  300	 // size of HTML buffer
 
 #define DELAY_ERROR 500
 #define DELAY_NORMAL 500
@@ -90,7 +90,7 @@ struct temphum_data_detailed {
 #define DEF_FAN_TEMP  110 // some days it's even hotter than this always though
 #define FN_FANTEMP "/f.txt"
 #define FAN_MIN_SECS 60
-#define FAN_THRESH 1    // turn off after fanTemp-this_value
+#define FAN_THRESH 1	// turn off after fanTemp-this_value
 
 /* SECS_TEMP_CHECK
    How frequently to check temperature, just for display.
@@ -105,7 +105,7 @@ struct temphum_data_detailed {
 #define CHECK_PERIOD 120  // seconds
 #define MAX_DATAPOINTS (720*7) // let's see if we can keep a week
 /* #define CHECK_PERIOD 5  // seconds */
-/* #define CHECK_PERIOD 10  // seconds */
+/* #define CHECK_PERIOD 10	// seconds */
 //#define DAY_DATAPOINTS (48*60*60/CHECK_PERIOD) // Every minute
 #define DAY_DATAPOINTS MAX_DATAPOINTS
 //#define DAY_DATAPOINTS (24*15)
@@ -121,7 +121,7 @@ char const *lastError=NO_ERR_STR;
 struct temphum_data_minimal dayData[DAY_DATAPOINTS+1];
 int dayStart=0; // unused
 int dayNext=0;
-#define TEMPREAD_DELAY_MILLIS 1000  // millis
+#define TEMPREAD_DELAY_MILLIS 1000	// millis
 unsigned long last_tempread_millis=0;
 #define TEMP_HF_CNT 60
 #define TEMP_HF_MEDIAN_CNT 7
@@ -145,8 +145,8 @@ void reset_lasttime(void) {
 }
 
 // Get from Circle Buffer: agei is age offset, a positive number
-//                         (1 would be 1 sample ago)
-//                         0 is the last-read sample
+//						   (1 would be 1 sample ago)
+//						   0 is the last-read sample
 struct temphum_data_minimal *get_lf_aged_samplep(int agei) {
 	// Macro version: ((dat)[(nxtv)-(n)>0 ? (nxtv)-(n)-1 : (tot)-(n)-1])
 	int offset = dayNext - 1 - agei;
@@ -182,7 +182,7 @@ void get_day_minmax(float *minf, float *maxf, int type) {
 				if (val > *maxf) *maxf = val;
 				if (val < *minf) *minf = val;
 			#else
-			*minf = 0;          // if no dht11, just use a 0-1 range
+			*minf = 0;			// if no dht11, just use a 0-1 range
 			*maxf = 1;
 			#endif
 		}
@@ -214,7 +214,7 @@ int get_temphum_floats(struct temphum_data_detailed *tdp) {
 	#ifdef USE_DHT11
 		tdp->h = dht.readHumidity(1); // force read
 		tdp->c = dht.readTemperature(false, 1); // celsius, (force it)
-		tdp->f = dht.readTemperature(true, 1);  // fahrenheit, (force it)
+		tdp->f = dht.readTemperature(true, 1);	// fahrenheit, (force it)
 		if (isnan(tdp->h)) { // extra tests just for more verbose reporting
 			Serial.print("Failed hum read\n");
 		}
@@ -225,8 +225,8 @@ int get_temphum_floats(struct temphum_data_detailed *tdp) {
 			//Serial.print("Failed to read hum, degc, or degf\n");
 			return 1;
 		}
-		tdp->hic = dht.computeHeatIndex(tdp->c, tdp->h, false);       
-		tdp->hif = dht.computeHeatIndex(tdp->f, tdp->h);       
+		tdp->hic = dht.computeHeatIndex(tdp->c, tdp->h, false);		  
+		tdp->hif = dht.computeHeatIndex(tdp->f, tdp->h);	   
 		// You can delete the following Serial.print's, it's just for debugging purposes
 		Serial.print("Hum: ");
 		Serial.print(tdp->h);
@@ -252,12 +252,12 @@ int get_temphum_all(struct temphum_data_detailed *td) {
 	float h, c, f, hic, hif;
 	int rc;
 	if ((rc = get_temphum_floats(td))) {
-    	//sl("Failed to read from DHT sensor!");
-	    strcpy(td->hs, "Fail");
-	    strcpy(td->cs, "Fail");
-	    strcpy(td->fs, "Fail");         
-	    strcpy(td->hics, "Fail");         
-	    strcpy(td->hifs, "Fail");         
+		//sl("Failed to read from DHT sensor!");
+		strcpy(td->hs, "Fail");
+		strcpy(td->cs, "Fail");
+		strcpy(td->fs, "Fail");			
+		strcpy(td->hics, "Fail");		  
+		strcpy(td->hifs, "Fail");		  
 		return 1;
 	}
 	float_to_s7(td->hs, td->h);
@@ -385,7 +385,7 @@ void handleRoot() {
 	digitalWrite ( led, 1 );
 	char temp[ROOT_MAX_HTML+1];
 	int sec = millis() / 1000; // total secs, not mod(60)
-	int min = sec / 60;        // none of these are mod. they're totals.
+	int min = sec / 60;		   // none of these are mod. they're totals.
 	int hr = min / 60;
 	int days = hr / 24;
 	struct temphum_data_minimal *tdp;
@@ -443,20 +443,20 @@ void handleRoot() {
 		".fs{color:white;font-weight:bold}" // fan state
 		".on{background:green}"
 		".off{background:red}"
-		".t{background:yellow}"          // temp
-		".tl{background:#ffffbb}"        // multi temp listing
-		".ss{font-size:70%%;}"          // extra extra small
-		".sss{font-size:30%%;}"          // extra extra small
+		".t{background:yellow}"			 // temp
+		".tl{background:#ffffbb}"		 // multi temp listing
+		".ss{font-size:70%%;}"			// extra extra small
+		".sss{font-size:30%%;}"			 // extra extra small
 		"</style>"
 		"</head>"
 		"<body>\n");
 	server.sendContent(temp);
 	/* snprintf(temp, ROOT_MAX_HTML, */
-	/* 	"Sizeof: (dayData)=%d, (*dayData)=%d,<br />\n" */
-	/* 	"sizeof cprectemps=%d, sizeof *cprectemps=%d", */
-	/* 	sizeof(dayData), */
-	/* 	sizeof(*dayData), */
-	/* 	sizeof cprectemps, sizeof *cprectemps); */
+	/*	"Sizeof: (dayData)=%d, (*dayData)=%d,<br />\n" */
+	/*	"sizeof cprectemps=%d, sizeof *cprectemps=%d", */
+	/*	sizeof(dayData), */
+	/*	sizeof(*dayData), */
+	/*	sizeof cprectemps, sizeof *cprectemps); */
 	/* server.sendContent(temp); */
 
 	snprintf(temp, ROOT_MAX_HTML,
@@ -579,7 +579,7 @@ void handleRoot() {
 		"<a href=/f.svg><img src=/f.svg /></a><br/>"
 		"Min: %.2f°<br/>"
 		"</div>",
-		int(DAY_DATAPOINTS * CHECK_PERIOD / 60 / 60),   // all ints anyway
+		int(DAY_DATAPOINTS * CHECK_PERIOD / 60 / 60),	// all ints anyway
 		int((DAY_DATAPOINTS * CHECK_PERIOD / 60)) % 60, // have to be sure with %
 		int(DAY_DATAPOINTS * CHECK_PERIOD) % 60,
 		DAY_DATAPOINTS,
@@ -753,6 +753,7 @@ void setup(void) {
 	server.on(F("/h.svg"), drawGraphH );
 	server.on(F("/rst"), handleRst );
 	server.on(F("/f.txt"), dumpDataF );
+	server.on(F("/putftxt"), restoreDataF );
 	server.on(F("/sett"), setTempTrigger );
 	//server.on("/inline", []() {server.send(200,"text/plain","this works as well"); });
 	httpUpdater.setup(&server, update_user, update_pw); // adds /update path for OTA
@@ -784,7 +785,7 @@ int get_temp(struct temphum_data_detailed *tdp) {
 	}
 	if (rc) {
 		sl(F("Sens failure"));
-		return rc;  // failed
+		return rc;	// failed
 	}
 	return 0;
 }
@@ -815,7 +816,7 @@ int get_and_store_temp(struct temphum_data_detailed *tdp) {
 	}
 	if (rc) {
 		sl(F("Sens failure"));
-		return rc;  // failed
+		return rc;	// failed
 	}
 	storep = &(dayData[dayNext]);
 	#ifdef USE_DHT11
@@ -853,8 +854,8 @@ int sort_det_temps_asc(const void *d1, const void *d2) {
 
 struct temphum_data_detailed median_hf_temp() {
 	memcpy(cprectemps,
-	       recent_hf_temps,
-	       TEMP_HF_MEDIAN_CNT * sizeof(*recent_hf_temps));
+		   recent_hf_temps,
+		   TEMP_HF_MEDIAN_CNT * sizeof(*recent_hf_temps));
 	qsort(cprectemps, sizeof cprectemps / sizeof *cprectemps, sizeof *cprectemps, sort_det_temps_asc);
 	return cprectemps[ (int)(TEMP_HF_MEDIAN_CNT / 2) ];
 }
@@ -900,7 +901,7 @@ void temphumLoopHandler(void) {
 		}
 	}
 
-	if (seconds >= CHECK_PERIOD) {   // at or past time to get temperature
+	if (seconds >= CHECK_PERIOD) {	 // at or past time to get temperature
 		time_last = secsNow;  // Reset timer even if we don't get the data
 			// Try twice to get temp data
 		td = median_hf_temp();
@@ -960,7 +961,7 @@ void dumpDataF() {
 
 	n=0;
 	i=dayNext+1;
-	for (;  n<DAY_DATAPOINTS; offt += CHECK_PERIOD, n++, i++) {
+	for (;	n<DAY_DATAPOINTS; offt += CHECK_PERIOD, n++, i++) {
 		struct temphum_data_minimal *ts;
 		char temp[24];
 		if (i>DAY_DATAPOINTS) i=0;
@@ -969,6 +970,68 @@ void dumpDataF() {
 		server.sendContent(temp);
 	}
 }
+
+String leftover = ""; // To store any incomplete data at the end of a chunk
+int storei = 0; // Add this line to declare the variable storei
+
+void restoreDataF() {
+	HTTPUpload& upload = server.upload();
+	if(upload.status == UPLOAD_FILE_START){
+		Serial.print("restoreDataF Name: "); Serial.println(upload.filename);
+		leftover = ""; // Reset leftover data at the start of a new upload
+		storei = 0; // Reset the index at the start of a new upload
+	} else if(upload.status == UPLOAD_FILE_WRITE){
+		// Create a null-terminated string from the byte array
+		char buf[upload.currentSize + 1];
+		memcpy(buf, upload.buf, upload.currentSize);
+		buf[upload.currentSize] = '\0';
+
+		String dataString = leftover + String(buf); // Prepend any leftover data from the previous chunk
+
+		// Copy the string data to a non-const char array
+		int len = dataString.length();
+		char data[len + 1];
+		dataString.toCharArray(data, len + 1);
+
+		char* token = strtok(data, "\n");
+		while (token != NULL) {
+			char* nextToken = strtok(NULL, "\n");
+			if (nextToken == NULL && !dataString.endsWith("\n")) {
+				// If this is the last token and the data doesn't end with a newline,
+				// then this token might be incomplete. Store it in leftover to be prepended to the next chunk.
+				leftover = String(token);
+			} else {
+				// Parse the token into a temphum_data_minimal struct
+				struct temphum_data_minimal ts = parseData(token);
+				dayData[storei] = ts;
+				storei++;
+			}
+			token = nextToken;
+		}
+	} else if(upload.status == UPLOAD_FILE_END){
+		if (leftover.length() > 0) {
+			// If there's any leftover data at the end of the upload, parse it now
+			int len = leftover.length();
+			char leftoverData[len + 1];
+			leftover.toCharArray(leftoverData, len + 1);
+			struct temphum_data_minimal ts = parseData(leftoverData);
+			dayData[storei] = ts;
+			storei++;
+			leftover = "";
+		}
+		Serial.print("restoreDataF Size: "); Serial.println(upload.totalSize);
+		server.send(200, "text/plain", "Data restored successfully.");
+	}
+}
+
+struct temphum_data_minimal parseData(char* data) {
+	// Implement this function to parse a string into a temphum_data_minimal struct
+	// The string will be in the format "temperature"
+	struct temphum_data_minimal ts;
+	sscanf(data, "%f", &(ts.df));
+	return ts;
+}
+
 
 void drawGraphF() { drawGraph(TYPE_DEGF); }
 void drawGraphH() {
@@ -1039,11 +1102,11 @@ void drawGraph(int type) {
 		"line{stroke-width:2;}"
 		".hg{stroke-width:1;stroke:gray;}"
 		".vg{stroke-width:1;stroke:#315A5C;}"
-    ".tx{fill:red;font-size:200%;}"
+	".tx{fill:red;font-size:200%;}"
 		"]]></style>"
 		"</defs>"
 		"<rect width='100%' height='100%' fill='#191970' />"));
- 	//out += temp;
+	//out += temp;
 
 #define RANGECONV(i, smin, smax, dmin, dmax) \
 		(((dmax)-(dmin)) * ((i)-(smin)) / ((smax)-(smin)) + (dmin))
@@ -1058,10 +1121,10 @@ void drawGraph(int type) {
 			i, minv, maxv, HEIGHT+PAD2, y);
 		sl(temp);
 		snprintf(temp, SMALL_HTML, "  Line: %d,%d -> %d,%d",
-			0, HEIGHT+PAD2-y,   WIDTH+PAD2-1, HEIGHT+PAD2-y);
+			0, HEIGHT+PAD2-y,	WIDTH+PAD2-1, HEIGHT+PAD2-y);
 		sl(temp);
 #endif
- 		sprintf(temp, "<line x1='%d' y1='%d' x2='%d' y2='%d' />\n",
+		sprintf(temp, "<line x1='%d' y1='%d' x2='%d' y2='%d' />\n",
 			0, HEIGHT+PAD2-y, WIDTH+PAD2-1, HEIGHT+PAD2-y);
 		out += temp;
 	}
@@ -1074,14 +1137,14 @@ void drawGraph(int type) {
 	//
 	struct temphum_data_minimal *td1, *td2;
 	// go from: dayNext -> DAY_DATAPOINTS-1
-	//    then: 0 to dayNext-1
+	//	  then: 0 to dayNext-1
 	//if (i<0) i=DAY_DATAPOINTS-1;
 	// ((360 * 120 = total secs) / 60 / 60 = total hours) = 12
 	int xlines = (DAY_DATAPOINTS * CHECK_PERIOD)/60/60;
 	out += "<g class='vg'>";
 	for (i=0; i<=xlines; i++) {
 		int xloc = WIDTH * i / xlines;
-	 	sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
+		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
 			xloc+PAD, 0, xloc+PAD, HEIGHT+PAD2);
 		out += temp;
 	}
@@ -1094,15 +1157,15 @@ void drawGraph(int type) {
 	if (type == TYPE_DEGF) { // only degF graphs for DALLAS
 		out = "<g stroke='MediumOrchid'>\n";
 		for (n=0; n<DAY_DATAPOINTS-1; n++, i++) {
-			int i2;           // i+1's next datapoint index
-			int x, x2;        // output svg coords
-			float y, y2;      // output svg coords
+			int i2;			  // i+1's next datapoint index
+			int x, x2;		  // output svg coords
+			float y, y2;	  // output svg coords
 			float val1, val2; // humidity or degf (based on type parameter)
 	
 			if (i>=DAY_DATAPOINTS) i=0; // Handle circular buffer wrap
 			i2 = i+1;
 			if (i2>=DAY_DATAPOINTS) i2=0;
-			td1 = &dayData[i];          // Get structs for data points
+			td1 = &dayData[i];			// Get structs for data points
 			td2 = &dayData[i2];
 			val1 = type == TYPE_DEGF ? td1->df : 0;
 			val2 = type == TYPE_DEGF ? td2->df : 0;
@@ -1120,24 +1183,24 @@ void drawGraph(int type) {
 			finx2 = x2+10;
 			finy1 = 10 + (HEIGHT-y);
 			finy2 = 10 + (HEIGHT-y2);
-	 		sprintf(temp,
-	 			"<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
-	 			finx1, (int)finy1, finx2, (int)finy2);
+			sprintf(temp,
+				"<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
+				finx1, (int)finy1, finx2, (int)finy2);
 			/* char finy1dec1, finy2dec1; // used for optional decimal part string */
-	 		/* Working on optional xxx.y 1-digit decimal place floats that
-	 		 * are optional for bandwidth efficiency */
+			/* Working on optional xxx.y 1-digit decimal place floats that
+			 * are optional for bandwidth efficiency */
 			/* char *flopoint1(float v) { */
-			/* 	char buf[3]=".x"; */
-			/* 	int intpart = (int)v; */
-			/* 	float decpart = v-intpart; // 0.vwxyz */
-			/* 	intpart = decpart*100;     // vw */
-			/* 	if (vw < 5) return "";     // (dec < ".05") is .0 so "" */
-			/* 	buf[1]=(intpart/10) */
+			/*	char buf[3]=".x"; */
+			/*	int intpart = (int)v; */
+			/*	float decpart = v-intpart; // 0.vwxyz */
+			/*	intpart = decpart*100;	   // vw */
+			/*	if (vw < 5) return "";	   // (dec < ".05") is .0 so "" */
+			/*	buf[1]=(intpart/10) */
 			/* } */
-	 		/* sprintf(temp, */
-	 		/* 	"<line x1=\"%d\" y1=\"%d%s\" x2=\"%d\" y2=\"%d%s\" />\n", */
-	 		/* 	finx1, (int)finy1, flopoint1(finy1), */
-	 		/* 	finx2, (int)finy2, flopoint1(finy1)); */
+			/* sprintf(temp, */
+			/*	"<line x1=\"%d\" y1=\"%d%s\" x2=\"%d\" y2=\"%d%s\" />\n", */
+			/*	finx1, (int)finy1, flopoint1(finy1), */
+			/*	finx2, (int)finy2, flopoint1(finy1)); */
 
 			// Send out data since it can get too big
 			// HTTP_UPLOAD_BUFLEN comes from ESP8266WebServer.h
@@ -1145,7 +1208,7 @@ void drawGraph(int type) {
 				server.sendContent(out);
 				out = "";
 			}
-	 		out += temp;
+			out += temp;
 		}
 		//refresh_send(5, "/", "refresh"); return;
 		out += "</g>";
@@ -1157,14 +1220,14 @@ void drawGraph(int type) {
 	//sp("Line: "); sl(__LINE__);
 	i=dayNext;
 	for (n=0; n<DAY_DATAPOINTS-1; n++, i++) {
-		int i2;           // i+1's next datapoint index
+		int i2;			  // i+1's next datapoint index
 		int y, y2, x, x2; // output svg coords
 		float val1, val2; // humidity or degf (based on type parameter)
 
 		if (i>=DAY_DATAPOINTS) i=0; // Handle circular buffer wrap
 		i2 = i+1;
 		if (i2>=DAY_DATAPOINTS) i2=0;
-		td1 = &dayData[i];          // Get structs for data points
+		td1 = &dayData[i];			// Get structs for data points
 		td2 = &dayData[i2];
 		val1 = type == TYPE_DEGF ? td1->f : td1->h;
 		val2 = type == TYPE_DEGF ? td2->f : td2->h;
@@ -1176,8 +1239,8 @@ void drawGraph(int type) {
 		y = ((val1 - minv) / (maxv-minv)) * HEIGHT;
 		y2 = ((val2 - minv) / (maxv-minv)) * HEIGHT;
 
- 		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n", x+10, 10 + (HEIGHT-y), x2+10, 10 + (HEIGHT-y2));
- 		out += temp;
+		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n", x+10, 10 + (HEIGHT-y), x2+10, 10 + (HEIGHT-y2));
+		out += temp;
 	}
 	//refresh_send(5, "/", "refresh"); return;
 	out += "</g>";
@@ -1185,15 +1248,15 @@ void drawGraph(int type) {
 #endif
 
 	// Random graph
- 	/* out += "<g stroke=\"black\">\n";
- 	int y = rand() % 130;
- 	for (int x = 10; x < 390; x+= 10) {
- 		int y2 = rand() % 130;
- 		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke-width=\"1\" />\n", x, 140 - y, x + 10, 140 - y2);
- 		out += temp;
- 		y = y2;
- 	}
- 	out += "</g>";
+	/* out += "<g stroke=\"black\">\n";
+	int y = rand() % 130;
+	for (int x = 10; x < 390; x+= 10) {
+		int y2 = rand() % 130;
+		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke-width=\"1\" />\n", x, 140 - y, x + 10, 140 - y2);
+		out += temp;
+		y = y2;
+	}
+	out += "</g>";
 	*/
 	sprintf(temp,
 		"<text x=\"10\" y=\"36\" class=\"tx\">%.1f</text>"
