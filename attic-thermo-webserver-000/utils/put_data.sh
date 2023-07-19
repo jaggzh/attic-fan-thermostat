@@ -38,4 +38,6 @@ EOT
 echo "These are the lines we are sending:"
 grep -v '^#' "$data_file" | head -n 20  | cut -f 2 | sed -e 's/^.*/80.00/;' # |  curl -X POST -d @- http://$TEMP_HOST/restoredata
 echo "^^ These are the lines we are sending."
-#grep -v '^#' "$data_file" | head -n 20  | cut -f 2 | sed -e 's/^.*/80.00/;' | curl -X POST -d @- http://$TEMP_HOST/restoredata
+grep -v '^#' "$data_file" | head -n 20  | cut -f 2 | sed -e 's/^.*/80.00/;' | curl -X POST -d @- http://$TEMP_HOST/restoredata
+#| curl -F "file=@foo" http://$TEMP_HOST/restoredata
+

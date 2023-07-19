@@ -365,10 +365,16 @@ void handleRst() {
 	ESP.reset();
 }
 
-char *atoi(int i) {
-	static char temp[10];
-	snprintf(temp, 9, "%d", i);
-	return temp;
+char *itoa(int i) {
+	static int tempi=0;
+	static char temp[20][10];
+	int reti;
+	if (tempi<20) {
+		snprintf(temp[tempi], 9, "%d", i);
+		reti=tempi++;
+		return temp[reti];
+	}
+	return "";
 }
 
 #ifdef DEBUG_LOGS
@@ -378,7 +384,7 @@ char *atoi(int i) {
 	
 		server.sendContent(F("  Begin logs:\n"));
 		server.sendContent(F("  log count: "));
-		server.sendContent(atoi(logi));
+		server.sendContent(itoa(logi));
 		server.sendContent("\n");
 		for (int i=0; i<LOGSMAX && logstrs[i]; i++) {
 			server.sendContent(logstrs[i]);
@@ -804,9 +810,11 @@ void setup(void) {
 	server.on(F("/restoredata"),
 		HTTP_POST,
 		[](){
-			server.sendContent("HTTP/1.0 200 OK\r\n");
-			server.sendContent("Content-Type: text/plain\r\n\r\nReady for data\n");
-			addlog("Sent 200 response");
+			server.sendHeader("Connection", "close");
+			server.send(200, "text/plain", "Received data.");
+			/* server.sendContent("HTTP/1.0 200 OK\r\n"); */
+			/* server.sendContent("Content-Type: text/plain\r\n\r\nReady for data\n"); */
+			addlog("Sent 200; completed.");
 		},
 		restoreDataF
 	);
@@ -1029,68 +1037,82 @@ void dumpDataF() {
 	}
 }
 
-void restoreDataF() {
-	HTTPUpload& upload = server.upload();
-	addlog("/restoreDataF hit");
-	if(upload.status == UPLOAD_FILE_START){
-		addlog("Start");
-		Serial.print("restoreDataF Name: "); Serial.println(upload.filename);
-		leftover = ""; // Reset leftover data at the start of a new upload
-		storei = 0; // Reset the index at the start of a new upload
-	} else if(upload.status == UPLOAD_FILE_WRITE){
-		addlog("UL");
-		// Create a null-terminated string from the byte array
-		char buf[upload.currentSize + 1];
-		memcpy(buf, upload.buf, upload.currentSize);
-		buf[upload.currentSize] = '\0';
+#include <iostream>
+#include <string>
 
-		String dataString = leftover + String(buf); // Prepend any leftover data from the previous chunk
-
-		// Copy the string data to a non-const char array
-		int len = dataString.length();
-		char data[len + 1];
-		dataString.toCharArray(data, len + 1);
-
-		char* token = strtok(data, "\n");
-		while (token != NULL) {
-			char* nextToken = strtok(NULL, "\n");
-			if (nextToken == NULL && !dataString.endsWith("\n")) {
-				// If this is the last token and the data doesn't end with a newline,
-				// then this token might be incomplete. Store it in leftover to be prepended to the next chunk.
-				leftover = String(token);
-			} else {
-				addlog(" Token");
-				addlog(token);
-				// Parse the token into a temphum_data_minimal struct
-				struct temphum_data_minimal ts = parseData(token);
-				dayData[storei] = ts;
-				storei++;
-			}
-			token = nextToken;
-		}
-	} else if(upload.status == UPLOAD_FILE_END){
-		addlog("UL done");
-		if (leftover.length() > 0) {
-			// If there's any leftover data at the end of the upload, parse it now
-			int len = leftover.length();
-			char leftoverData[len + 1];
-			leftover.toCharArray(leftoverData, len + 1);
-			struct temphum_data_minimal ts = parseData(leftoverData);
-			dayData[storei] = ts;
-			storei++;
-			leftover = "";
-		}
-		Serial.print("restoreDataF Size: "); Serial.println(upload.totalSize);
-		server.send(200, "text/plain", "Data restored successfully.\n");
-	}
+// Custom function to split a string into a vector of strings by a delimiter
+std::vector<String> splitString(const String& str, char delimiter) {
+  std::vector<String> tokens;
+  int start = 0;
+  int end = str.indexOf(delimiter);
+  while (end != -1) {
+    tokens.push_back(str.substring(start, end));
+    start = end + 1;
+    end = str.indexOf(delimiter, start);
+  }
+  tokens.push_back(str.substring(start));
+  return tokens;
 }
 
-struct temphum_data_minimal parseData(char* data) {
-	// Implement this function to parse a string into a temphum_data_minimal struct
-	// The string will be in the format "temperature"
-	struct temphum_data_minimal ts;
-	sscanf(data, "%f", &(ts.df));
-	return ts;
+void restoreDataF() {
+	static bool once=false;
+  HTTPUpload& upload = server.upload();
+  addlog("/restoreDataF hit");
+  String s="123.456";
+  if(upload.status == UPLOAD_FILE_START){
+    addlog("Start");
+    Serial.print("restoreDataF Name: "); Serial.println(upload.filename);
+    leftover = ""; // Reset leftover data at the start of a new upload
+    storei = 0; // Reset the index at the start of a new upload
+  } else if(upload.status == UPLOAD_FILE_WRITE) {
+    addlog("UL");
+    // Create a null-terminated string from the byte array
+    char buf[upload.currentSize + 1];
+    memcpy(buf, upload.buf, upload.currentSize);
+    buf[upload.currentSize] = '\0';
+    if (!once) {
+		addlog(buf);
+		addlog(itoa(upload.currentSize));
+		once=true;
+	}
+
+    String dataString = leftover + String(buf); // Prepend any leftover data from the previous chunk
+
+    std::vector<String> lines = splitString(dataString, '\n');
+    for (size_t i = 0; i < lines.size(); i++) {
+      if (i == lines.size() - 1 && !dataString.endsWith("\n")) {
+        // If this is the last line and the data doesn't end with a newline,
+        // then this line might be incomplete. Store it in leftover to be prepended to the next chunk.
+        leftover = lines[i];
+      } else {
+        /* addlog(" Token"); */
+        /* addlog(lines[i].c_str()); */
+        // Parse the line into a temphum_data_minimal struct
+        struct temphum_data_minimal ts = parseData(lines[i].c_str());
+        dayData[storei] = ts;
+        storei++;
+      }
+    }
+  } else if(upload.status == UPLOAD_FILE_END){
+    addlog("UL done");
+    if (leftover.length() > 0) {
+      // If there's any leftover data at the end of the upload, parse it now
+      struct temphum_data_minimal ts = parseData(leftover.c_str());
+      dayData[storei] = ts;
+      storei++;
+      leftover = "";
+    }
+    Serial.print("restoreDataF Size: "); Serial.println(upload.totalSize);
+    server.send(200, "text/plain", "Data restored successfully.\n");
+  }
+}
+
+struct temphum_data_minimal parseData(const char* data) {
+  // Implement this function to parse a string into a temphum_data_minimal struct
+  // The string will be in the format "temperature"
+  struct temphum_data_minimal ts;
+  sscanf(data, "%f", &(ts.df));
+  return ts;
 }
 
 void drawGraphF() {
