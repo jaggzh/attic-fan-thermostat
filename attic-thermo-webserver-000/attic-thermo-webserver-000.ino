@@ -3,7 +3,8 @@
 #define DEBUG_LOGS
 
 unsigned long int stored_temperatures = 0;
-#define USE_DALLAS		// Using DS18B20?
+#define USE_BMP180  // bmp180 / bmp085 (arduino library)
+//#define USE_DALLAS		// Using DS18B20?
 // #define DUMP_DATA_SERIAL  // dump temp data, on hits, to serial
 //#define USE_DHT11		  // Using DHT11 (d1 mini shield in my case)
 #define SAVE_SPIFFS		// save temperature setting to spiffs
@@ -24,13 +25,29 @@ unsigned long int stored_temperatures = 0;
 #include "ota.h"
 
 #ifdef USE_DALLAS
-#include <OneWire.h>
-#include <DallasTemperature.h>
+	#include <OneWire.h>
+	#include <DallasTemperature.h>
 #define DALPIN D4	// data pin for ds18b20 (D4 = 2)
-OneWire oneWire(DALPIN); // on our pin (bus), but for any onewire devices
-DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Temperature. 
-DeviceAddress thermaddress;
-int thermocount = 1; // just forcing this on for now (since we're not doing the update call and load_firstreading() requires the thermo to be found)
+	OneWire oneWire(DALPIN); // on our pin (bus), but for any onewire devices
+	DallasTemperature ds18sensors(&oneWire); // Pass our oneWire ref to Dallas Temperature. 
+	DeviceAddress thermaddress;
+#endif
+
+#if defined(USE_DALLAS) || defined(USE_BMP180)
+	int thermocount = 1; // just forcing this on for now (since we're not doing the update call and load_firstreading() requires the thermo to be found)
+#endif
+
+#ifdef USE_BMP180
+	#include <Wire.h>
+	/* #include <Adafruit_BMP085.h> */
+	/* Adafruit_BMP085 bmp; */
+#include "I2Cdev.h"
+#include "BMP085.h"
+	#define SEALEVELPRESSURE_hPa 1013.25
+	#define BMP180_SDA_PIN D6 // gpio12
+	#define BMP180_SCL_PIN D5 // gpio14
+	BMP085 bmp;
+	bool bmpworks = false;
 #endif
 
 //#include <ArduinoOTA.h>
@@ -38,12 +55,12 @@ int thermocount = 1; // just forcing this on for now (since we're not doing the 
 
 #define DISCONNECT server.client().stop()
 
-#define RELAYPIN 5	// D1 = 1 for NodeMCU, but we're using Arduino so D1 = 5
+#define RELAYPIN D1	// D1 = 1 for NodeMCU, but we're using Arduino so D1 = 5
 
 #ifdef USE_DHT
-#include "DHT.h"
-#define DHTPIN	2	  // D4 = 2 (D4, 2, is shield's pin)
-#define DHTTYPE DHT11 // DHT11
+	#include "DHT.h"
+	#define DHTPIN	2	  // D4 = 2 (D4, 2, is shield's pin)
+	#define DHTTYPE DHT11 // DHT11
 #endif
 
 #define VERBOSE 2
@@ -81,6 +98,9 @@ struct temphum_data_minimal {
 	#ifdef USE_DALLAS
 		float df;
 	#endif
+	#ifdef USE_BMP180
+		float df;
+	#endif
 };
 struct temphum_data_detailed {
 	#ifdef USE_DHT11
@@ -90,6 +110,9 @@ struct temphum_data_detailed {
 	#ifdef USE_DALLAS
 		float df; // for dallas reading degf
 		/* char dfs[7]; */
+	#endif
+	#ifdef USE_BMP180
+		float df;
 	#endif
 };
 #define DEF_FAN_TEMP  110 // some days it's even hotter than this always though
@@ -142,10 +165,10 @@ char const *lastError=NO_ERR_STR;
 struct temphum_data_minimal dayData[DAY_DATAPOINTS+1];
 int dayStart=0; // unused
 int dayNext=0;
-#define TEMPREAD_DELAY_MILLIS 1000	// millis
+#define TEMPREAD_DELAY_MILLIS 20000	// millis
 unsigned long last_tempread_millis=0;
 #define TEMP_HF_CNT 60
-#define TEMP_HF_MEDIAN_CNT 7
+#define TEMP_HF_MEDIAN_CNT 5
 #if TEMP_HF_MEDIAN_CNT > TEMP_HF_CNT
 	#error "TEMP_HF_MEDIAN_CNT too big. Must be smaller buffer than TEMP_HF_CNT"
 #endif
@@ -190,7 +213,7 @@ void get_day_minmax(float *minf, float *maxf, int type) {
 				if (valdht < *minf) *minf = valdht;
 			#endif
 
-			#ifdef USE_DALLAS
+			#if defined(USE_DALLAS) || defined(USE_BMP180)
 				float valds;
 				valds = dayData[i].df;
 				if (valds > *maxf) *maxf = valds;
@@ -215,11 +238,32 @@ void get_day_minmax(float *minf, float *maxf, int type) {
 // humidity, degc, degf, heat index c, heat index f
 // ** does not fill string values in struct
 int get_temphum_floats(struct temphum_data_detailed *tdp) {
+	#ifdef USE_BMP180
+		float cres, res;
+		if (!bmp.testConnection()) {
+			Serial.println("Test connection to BMP failed");
+			cres = -100; // bad value when bmp not working
+		} else {
+			Serial.println("Test connection to BMP succeeded");
+		/* if (!bmpworks) bmp_begin(); */
+			bmpworks = true;
+			/* cres = bmp.readTemperature(); */
+			bmp.setControl(BMP085_MODE_TEMPERATURE);
+			cres = bmp.getTemperatureC();
+		}
+		res = cres*9.0/5 + 32;
+		char temp[SMALL_HTML+1];
+		snprintf(temp, SMALL_HTML, "BMP180 DegC: %.3f DegF: %.3f floor=>%.3f int=>%d",
+			cres, res, floor(res), (int)res);
+		sl(temp);
+		lastError = NO_ERR_STR;
+		tdp->df = res;
+	#endif
 	#ifdef USE_DALLAS
 		float res;
 		ds18sensors.requestTemperatures();
 		res = ds18sensors.getTempFByIndex(0);
-		char temp[SMALL_HTML];
+		char temp[SMALL_HTML+1];
 		snprintf(temp, SMALL_HTML, "DS18 DegF: %.8f floor=>%.8f int=>%d", res, floor(res), (int)res);
 		sl(temp);
 		// Disconnected DS18B20 data line yields DEVICE_DISCONNECTED_F
@@ -264,32 +308,6 @@ int get_temphum_floats(struct temphum_data_detailed *tdp) {
 	return 0;
 }
 
-#if 0 // not using strings
-int float_to_s7(char *str, float f) {
-	dtostrf(f, 6, 2, str); 
-}
-
-int get_temphum_all(struct temphum_data_detailed *td) {
-	float h, c, f, hic, hif;
-	int rc;
-	if ((rc = get_temphum_floats(td))) {
-		//sl("Failed to read from DHT sensor!");
-		strcpy(td->hs, "Fail");
-		strcpy(td->cs, "Fail");
-		strcpy(td->fs, "Fail");			
-		strcpy(td->hics, "Fail");		  
-		strcpy(td->hifs, "Fail");		  
-		return 1;
-	}
-	float_to_s7(td->hs, td->h);
-	float_to_s7(td->cs, td->c);
-	float_to_s7(td->fs, td->f);
-	float_to_s7(td->hics, td->hic);
-	float_to_s7(td->hifs, td->hif);
-	return 0;
-}
-#endif
-
 void load_firstreading(void) {
 	struct temphum_data_detailed td;
 	int succ=0;
@@ -313,7 +331,7 @@ void load_firstreading(void) {
 			td.h = 0;
 			td.f = 0;
 		#endif
-		#ifdef USE_DALLAS
+		#if defined(USE_DALLAS) || defined(USE_BMP180)
 			td.df = 0;
 		#endif
 	}
@@ -324,7 +342,7 @@ void load_firstreading(void) {
 			dayData[i].h = td.h;
 			dayData[i].f = td.f;
 		#endif
-		#ifdef USE_DALLAS
+		#if defined(USE_DALLAS) || defined(USE_BMP180)
 			dayData[i].df = td.df;
 			/* dayData[i].df = 1.0; */
 		#endif
@@ -336,7 +354,7 @@ void load_firstreading(void) {
 
 #if 0 // working on this
 void refresh_printf(int secs, char *url, char *htmlopt, ...) {
-	char temp[SMALL_HTML];
+	char temp[SMALL_HTML+1];
 	int len;
 	len = snprintf(temp, SMALL_HTML,
 		"<html><head><meta http-equiv=refresh content='%d; url=%s' /></head><body>",
@@ -351,7 +369,7 @@ void refresh_printf(int secs, char *url, char *htmlopt, ...) {
 #endif
 
 void refresh_send(int secs, const char *url, const char *htmlopt) {
-	char temp[SMALL_HTML];
+	char temp[SMALL_HTML+1];
 	snprintf(temp, SMALL_HTML,
 		"<html><head><meta http-equiv=refresh content='%d; url=%s' /></head><body>%s</body></html>",
 		secs, url, htmlopt ? htmlopt : ""
@@ -365,7 +383,7 @@ void handleRst() {
 	ESP.reset();
 }
 
-char *itoa(int i) {
+const char *itoa(int i) {
 	static int tempi=0;
 	static char temp[20][10];
 	int reti;
@@ -451,8 +469,12 @@ void handleRoot() {
 	get_day_minmax(&minh, &maxh, TYPE_HUM);  // invalid results if no dht11
 	//int i = dayNext-1>0 ? dayNext-2 : DAY_DATAPOINTS-2;
 	#ifdef DEBUG_DUMP_TEMPS_SERIAL
-		#ifdef USE_DALLAS
-			sp("DS18B20 DegF: ");
+		#if defined(USE_DALLAS) || defined(USE_BMP180)
+			#ifdef USE_DALLAS
+				sp("DS18B20 DegF: ");
+			#elif defined(USE_BMP180)
+				sp("BMP180 DegF: ");
+			#endif
 			for (int i=0; i<DAY_DATAPOINTS; i+=int(DAY_DATAPOINTS/15)) {
 				tdp = get_lf_aged_samplep(i);
 				sp(tdp->df); sp(" ");
@@ -548,7 +570,7 @@ void handleRoot() {
 		tdp->f, minf, maxf, tdp->h, minh, maxh);
 	out += temp;
 #endif
-#ifdef USE_DALLAS
+#if defined(USE_DALLAS) || defined(USE_BMP180)
 	snprintf(temp, ROOT_MAX_HTML,
 		"Current temperature reading: <span class='f t'>%.2f°</span><br/>",
 		recent_hf_temps[0].df);
@@ -662,7 +684,7 @@ void handleRoot() {
 }
 
 void handleNotFound() {
-	char temp[SMALL_HTML];
+	char temp[SMALL_HTML+1];
 	digitalWrite ( led, 1 );
 	snprintf(temp, SMALL_HTML,
 		"File Not Found\n\n"
@@ -716,13 +738,17 @@ void setTempTrigger(void) {
 #define REPEAT_FIND_TEMPSENSOR_MILLIS 1000
 
 void find_update_tempsensor() {
-	Serial.println("Locating devices...");
-	Serial.print("Found ");
-	thermocount = ds18sensors.getDeviceCount();
-	Serial.print(thermocount, DEC);
-	Serial.println(" devices.");
-	Serial.print("Device 0 address: ");
-	ds18sensors.getAddress(thermaddress, 0);
+	#ifdef DALLAS
+		Serial.println("Locating devices...");
+		Serial.print("Found ");
+		thermocount = ds18sensors.getDeviceCount();
+		Serial.print(thermocount, DEC);
+		Serial.println(" devices.");
+		Serial.print("Device 0 address: ");
+		ds18sensors.getAddress(thermaddress, 0);
+	#else
+		thermocount = 1;
+	#endif
 }
 
 void find_update_tempsensor_timed(int milliz) {
@@ -739,6 +765,19 @@ void find_update_tempsensor_timed(int milliz) {
 	}
 }
 
+bool bmp_begin() {
+	/* if (bmp.begin()) { */
+	if (bmp.testConnection()) {
+		bmpworks = true;
+		Serial.println("Found BMP085 sensor!");
+		bmp.initialize();
+		return true;
+	}
+	bmpworks = false;
+	Serial.println("Could not find BMP085 sensor!");
+	return false;
+}
+
 void setup(void) {
 	// We set the initial millis() at the end of setup()
 	// >> previous_millis = millis();
@@ -751,6 +790,13 @@ void setup(void) {
 	Serial.println(result);
 #else
   Serial.print(F("Skipping LittleFS format")); 
+#endif
+#ifdef USE_BMP180
+	Wire.begin(BMP180_SDA_PIN, BMP180_SCL_PIN); // sda, scl
+	for (int i=0; i<5; i++) {
+		if (bmp_begin()) break;
+		delay(500);
+	}
 #endif
 
 #ifdef USE_DHT11
@@ -864,7 +910,7 @@ void store_temp(struct temphum_data_detailed *tdp) {
 		storep->h = tdp->h;
 		storep->f = tdp->f;
 	#endif
-	#ifdef USE_DALLAS
+	#if defined(USE_DALLAS) || defined(USE_BMP180)
 		storep->df = tdp->df;
 	#endif
 	dayNext++;
@@ -947,14 +993,14 @@ void temphumLoopHandler(void) {
 
 	unsigned long diff_millis = cur_millis - previous_millis;
 	unsigned long diff_secs;
-	if (diff_millis >= 1000) { // at least a second has passed.
+	if (diff_millis >= 2000) { // at least a second has passed.
 		diff_secs = diff_millis / 1000;
 		secs_counter += diff_secs;
 		previous_millis += (diff_secs * 1000);
-		Serial.print(F("Diff millis: ")); Serial.println(diff_millis);
-		Serial.print(F("Diff secs: ")); Serial.println(diff_secs);
-		Serial.print(F(" Millis: ")); Serial.println(millis());
-		Serial.print(F("PMillis: ")); Serial.println(previous_millis);
+		/* Serial.print(F("Diff millis: ")); Serial.println(diff_millis); */
+		/* Serial.print(F("Diff secs: ")); Serial.println(diff_secs); */
+		/* Serial.print(F(" Millis: ")); Serial.println(millis()); */
+		/* Serial.print(F("PMillis: ")); Serial.println(previous_millis); */
 		manual_fan_update(diff_secs);
 	}
 
@@ -974,7 +1020,7 @@ void temphumLoopHandler(void) {
 		store_temp(&td);
 		if (1) {
 			float curf;
-			#ifdef USE_DALLAS // more reliable
+			#if defined(USE_DALLAS) || defined(USE_BMP180)
 				curf = td.df;
 			#elif defined(USE_DHT11)
 				curf = td.f;
@@ -1145,7 +1191,7 @@ void drawGraph(int type) {
 	}
 	sl("");
 #endif
-#if defined(USE_DALLAS) && defined(DUMP_DATA_SERIAL)
+#if (defined(USE_DALLAS) || defined(USE_BMP180)) && defined(DUMP_DATA_SERIAL)
 	sp("GRAPH DS18: ");
 	n=0, i=dayNext+1;
 	for (; n<DAY_DATAPOINTS; n+=(DAY_DATAPOINTS/16), i+=(DAY_DATAPOINTS/16)) {
@@ -1231,13 +1277,17 @@ void drawGraph(int type) {
 		int xloc = WIDTH * i / xlines;
 		sprintf(temp, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" />\n",
 			xloc+PAD, 0, xloc+PAD, HEIGHT+PAD2);
+		if (out.length()+strlen(temp) > HTTP_UPLOAD_BUFLEN) {
+			server.sendContent(out);
+			out = "";
+		}
 		out += temp;
 	}
 	out += "</g>";
 	server.sendContent(out);
 	out = "";
 
-#ifdef USE_DALLAS
+#if defined(USE_DALLAS) || defined(USE_BMP180)
 	i=dayNext;
 	if (type == TYPE_DEGF) { // only degF graphs for DALLAS
 		out = "<g stroke='MediumOrchid'>\n";
@@ -1289,7 +1339,7 @@ void drawGraph(int type) {
 
 			// Send out data since it can get too big
 			// HTTP_UPLOAD_BUFLEN comes from ESP8266WebServer.h
-			if (out.length()+strlen(temp) >= HTTP_UPLOAD_BUFLEN-1) {
+			if (out.length()+strlen(temp) > HTTP_UPLOAD_BUFLEN) {
 				server.sendContent(out);
 				out = "";
 			}
